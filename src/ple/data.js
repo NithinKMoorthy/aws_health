@@ -1,17 +1,18 @@
 // Seed data for the AWS Health planned lifecycle event (PLE) flow.
-// Counts are chosen so the numbers in the PLE screen spec fall out of the
-// records: 40 Python 3.9 functions in 3 accounts, 37 found in 14 repos via
-// 22 findings, 9/3/2 merged/ready/failed after the first campaign run, and
-// 35 of 40 RESOLVED once the ready PRs merge.
+// Counts match the CM first-run onboarding spec: three Lambda runtime events
+// (Node.js 16: 9 functions in 6 repos, Python 3.10: 3 in 2, Java 11: 4 in 3),
+// 16 functions in 3 accounts, 86 repositories in acme-fintech, plus three
+// manual-action events (ECS task retirement x2, EC2 instance retirement).
 
 import { TENANT } from '../data';
 
 // Countdown math uses a fixed "today" so day counts match the spec.
-export const MOCK_TODAY = '2026-10-26';
+export const MOCK_TODAY = '2026-10-28';
 export const ORG = 'acme-fintech';
 export const OTHER_ACCOUNT = '111122223333';
 export const ACCOUNTS = [TENANT.account, '210987654321', '345678901234'];
 export const ACCOUNT_ENV = { [TENANT.account]: 'prod', '210987654321': 'staging', '345678901234': 'dev' };
+const ENV_ACCOUNT = { prod: ACCOUNTS[0], staging: ACCOUNTS[1], dev: ACCOUNTS[2] };
 
 export const daysLeft = (iso) => Math.round((new Date(`${iso}T12:00`) - new Date(`${MOCK_TODAY}T12:00`)) / 86400000);
 
@@ -23,51 +24,33 @@ function hash(s) {
 }
 
 // ---- Repository fixtures ---------------------------------------------------
-// fns: Lambda functions (or clusters/instances) whose IaC lives in the repo.
+// fns: [name, env, region] for each Lambda function (or cluster) defined in the repo.
 // outcome: what the first campaign run does (merge | ready | fail).
-const PY_REPOS = [
-  { repo: 'shared-utils', findings: 2, fns: ['shared-layer-publisher'], outcome: 'merge', owner: '@platform-team', file: 'template.yaml', line: 9, first: true },
-  { repo: 'payments-api', findings: 2, fns: ['payments-authorize', 'payments-capture', 'payments-refund', 'payments-webhook'], outcome: 'merge', owner: '@payments-team', file: 'template.yaml', line: 14, pr: 482 },
-  { repo: 'ledger-svc', findings: 2, fns: ['ledger-post', 'ledger-reconcile', 'ledger-close-day'], outcome: 'ready', owner: '@ledger-team', file: 'serverless.yml', line: 6, pr: 91, linked: 'ledger-worker' },
-  { repo: 'ledger-worker', findings: 1, fns: ['ledger-queue-consumer', 'ledger-dlq-replay'], outcome: 'ready', owner: '@ledger-team', file: 'serverless.yml', line: 8, linked: 'ledger-svc', after: 'ledger-svc' },
-  {
-    repo: 'fraud-model', findings: 1, fns: ['fraud-score'], outcome: 'fail', owner: '@risk-team', file: 'infra/lambda.tf', line: 22,
-    failure: { check: 'test_numpy_compat', reason: 'Unit test test_numpy_compat failed: numpy 1.19 has no python3.13 wheel; the TD pinned numpy>=2.1, which changes default float casting.', log: ['$ pytest tests/test_compat.py', 'FAILED tests/test_compat.py::test_numpy_compat - AssertionError: expected float64, got float32', '  > assert scores.dtype == np.float64', '1 failed, 48 passed in 6.21s'] },
-  },
-  {
-    repo: 'kyc-batch', findings: 1, fns: ['kyc-nightly-batch'], outcome: 'fail', owner: '@compliance-team', file: 'template.yaml', line: 31,
-    failure: { check: 'dependency check', reason: 'Dependency check failed: pandas==1.1.5 has no build for python3.13 and the upgrade to pandas 2.2 removes DataFrame.append, used in 6 places.', log: ['$ pip install -r requirements.txt --python-version 3.13', 'ERROR: No matching distribution found for pandas==1.1.5', 'atx: dependency check failed (1 blocking, 0 warnings)'] },
-  },
-  { repo: 'notifications-svc', findings: 2, fns: ['notify-email', 'notify-sms', 'notify-push', 'notify-digest'], outcome: 'merge', owner: '@messaging-team', file: 'template.yaml', line: 18, pr: 233 },
-  { repo: 'orders-api', findings: 2, fns: ['orders-create', 'orders-get', 'orders-cancel', 'orders-export', 'orders-stream'], outcome: 'merge', owner: '@orders-team', file: 'cdk/lib/api-stack.ts', line: 41, pr: 1207 },
-  { repo: 'inventory-sync', findings: 1, fns: ['inventory-pull', 'inventory-push', 'inventory-audit'], outcome: 'merge', owner: '@orders-team', file: 'template.yaml', line: 12, pr: 77 },
-  { repo: 'reporting-etl', findings: 2, fns: ['etl-extract', 'etl-transform', 'etl-load', 'etl-backfill'], outcome: 'merge', owner: '@data-team', file: 'infra/main.tf', line: 57, pr: 318 },
-  { repo: 'auth-hooks', findings: 1, fns: ['cognito-pre-signup', 'cognito-post-auth'], outcome: 'merge', owner: '@identity-team', file: 'template.yaml', line: 10, pr: 64 },
-  { repo: 'audit-log-shipper', findings: 2, fns: ['audit-ship', 'audit-compact', 'audit-alert'], outcome: 'ready', owner: '@security-team', file: 'serverless.yml', line: 11, pr: 145 },
-  { repo: 'image-resizer', findings: 1, fns: ['resize-thumb', 'resize-webp'], outcome: 'merge', owner: '@media-team', file: 'template.yaml', line: 16, pr: 52 },
-  { repo: 'search-indexer', findings: 2, fns: ['index-docs', 'index-rebuild'], outcome: 'merge', owner: '@search-team', file: 'cdk/lib/indexer.ts', line: 23, pr: 410 },
-];
-const PY_NOT_FOUND = ['legacy-csv-import', 'ops-cron-cleanup', 'marketing-sync'];
-const PY_PRE_RESOLVED = ['payments-authorize', 'payments-capture', 'payments-refund'];
-
+// hold: merged, but waits for the team's next deploy (until AWS Health is fast-forwarded).
 const NODE_REPOS = [
-  { repo: 'web-bff', findings: 2, fns: ['bff-graphql', 'bff-session'], outcome: 'merge', owner: '@web-team', file: 'template.yaml', line: 12, pr: 901 },
-  { repo: 'checkout-edge', findings: 2, fns: ['edge-viewer-request', 'edge-origin-response'], outcome: 'merge', owner: '@web-team', file: 'cdk/lib/edge.ts', line: 30, pr: 77 },
-  { repo: 'email-renderer', findings: 1, fns: ['render-template'], outcome: 'merge', owner: '@messaging-team', file: 'serverless.yml', line: 9, pr: 39 },
-  { repo: 'slack-bot', findings: 1, fns: ['slack-events'], outcome: 'merge', owner: '@platform-team', file: 'template.yaml', line: 7, pr: 18 },
-  { repo: 'pdf-statements', findings: 2, fns: ['statement-render', 'statement-mail'], outcome: 'merge', owner: '@payments-team', file: 'template.yaml', line: 21, pr: 260 },
-  { repo: 'webhook-relay', findings: 1, fns: ['relay-in'], outcome: 'merge', owner: '@platform-team', file: 'infra/lambda.tf', line: 14, pr: 33 },
+  { repo: 'bff-graphql', findings: 2, fns: [['bff-graphql', 'prod', 'us-east-1']], outcome: 'merge', owner: '@web-team', file: 'serverless.yml', line: 12, pr: 142 },
+  { repo: 'bff-session', findings: 1, fns: [['bff-session', 'staging', 'us-east-1']], outcome: 'merge', owner: '@web-team', file: 'template.yaml', line: 9, pr: 88 },
+  { repo: 'edge-functions', findings: 2, fns: [['edge-viewer-request', 'dev', 'us-west-2'], ['edge-origin-response', 'prod', 'us-west-2']], outcome: 'merge', owner: '@web-team', file: 'cdk/edge-stack.ts', line: 30, pr: 311 },
+  { repo: 'statements', findings: 2, fns: [['render-template', 'prod', 'us-east-1'], ['statement-render', 'staging', 'us-east-1'], ['statement-mail', 'prod', 'us-west-2']], outcome: 'merge', hold: true, owner: '@payments-team', file: 'serverless.yml', line: 21, pr: 57 },
+  { repo: 'slack-events', findings: 1, fns: [['slack-events', 'dev', 'eu-west-1']], outcome: 'ready', owner: '@platform-team', file: 'template.yaml', line: 7, pr: 19 },
+  { repo: 'relay-in', findings: 1, fns: [['relay-in', 'dev', 'eu-west-1']], outcome: 'ready', owner: '@platform-team', file: 'serverless.yml', line: 14, pr: 203 },
 ];
 
-const RDS_REPOS = [
-  { repo: 'core-db-infra', findings: 1, fns: ['core-ledger-db', 'core-ledger-db-replica'], outcome: 'merge', owner: '@dba-team', file: 'infra/rds.tf', line: 44, pr: 512 },
-  { repo: 'analytics-warehouse', findings: 1, fns: ['analytics-pg'], outcome: 'merge', owner: '@data-team', file: 'cdk/lib/db-stack.ts', line: 27, pr: 88 },
+const PY_REPOS = [
+  { repo: 'billing-exports', findings: 2, fns: [['invoice-export', 'prod', 'us-east-1']], outcome: 'merge', hold: true, owner: '@billing-team', file: 'template.yaml', line: 16, pr: 64 },
+  { repo: 'ledger', findings: 2, fns: [['ledger-sync', 'staging', 'eu-west-1'], ['fx-rates', 'prod', 'eu-west-1']], outcome: 'ready', owner: '@ledger-team', file: 'serverless.yml', line: 6, pr: 118 },
+];
+
+const JAVA_REPOS = [
+  { repo: 'payments', findings: 2, fns: [['payments-core', 'prod', 'us-east-1'], ['settlement-batch', 'prod', 'us-east-1']], outcome: 'ready', owner: '@payments-team', file: 'template.yaml', line: 14, pr: 402 },
+  { repo: 'kyc-service', findings: 1, fns: [['kyc-check', 'staging', 'us-east-2']], outcome: 'ready', owner: '@compliance-team', file: 'cdk/kyc-stack.ts', line: 23, pr: 77 },
+  { repo: 'audit', findings: 1, fns: [['audit-writer', 'dev', 'us-west-2']], outcome: 'ready', owner: '@security-team', file: 'main.tf', line: 41, pr: 35 },
 ];
 
 const CACHE_REPOS = [
-  { repo: 'session-store', findings: 1, fns: ['session-redis'], outcome: 'merge', owner: '@identity-team', file: 'infra/elasticache.tf', line: 12, pr: 71 },
-  { repo: 'rate-limiter', findings: 1, fns: ['ratelimit-redis'], outcome: 'merge', owner: '@platform-team', file: 'template.yaml', line: 33, pr: 29 },
-  { repo: 'cache-gateway', findings: 1, fns: ['gateway-cache', 'gateway-cache-ro'], outcome: 'merge', owner: '@web-team', file: 'cdk/lib/cache.ts', line: 18, pr: 140 },
+  { repo: 'session-store', findings: 1, fns: [['session-redis', 'prod', 'us-east-1']], outcome: 'merge', owner: '@identity-team', file: 'infra/elasticache.tf', line: 12, pr: 71 },
+  { repo: 'rate-limiter', findings: 1, fns: [['ratelimit-redis', 'prod', 'us-east-1']], outcome: 'merge', owner: '@platform-team', file: 'template.yaml', line: 33, pr: 29 },
+  { repo: 'cache-gateway', findings: 1, fns: [['gateway-cache', 'prod', 'us-east-1'], ['gateway-cache-ro', 'staging', 'us-east-1']], outcome: 'merge', owner: '@web-team', file: 'cdk/lib/cache.ts', line: 18, pr: 140 },
 ];
 
 const OTHER_REPOS = [
@@ -78,29 +61,38 @@ const OTHER_REPOS = [
   'statements-ui', 'support-tools', 'tax-calc', 'terraform-live', 'treasury-dashboard', 'user-profile', 'vault-policies', 'vendor-portal',
   'wire-transfers', 'account-closure', 'ach-gateway', 'aml-alerts', 'backoffice-api', 'budget-planner', 'cashflow-forecast', 'consent-service',
   'credit-decisioning', 'crm-sync', 'event-bus-schemas', 'interest-accrual', 'invoice-service', 'notification-templates', 'open-banking-api',
-  'qa-automation', 'rewards-engine', 'archived-v1-api', 'archived-mobile-legacy', 'archived-ops-scripts',
+  'qa-automation', 'rewards-engine', 'web-storefront', 'search-api', 'recommendations', 'loyalty-api', 'geo-service', 'ops-runbooks',
+  'email-service', 'cart-service', 'catalog-sync', 'shipping-rates', 'returns-portal', 'archived-v1-api', 'archived-mobile-legacy', 'archived-ops-scripts',
 ];
 // Repos the AWS Transform GitHub app can't read (access denied) — produces the "partial" state.
 export const UNREADABLE = ['archived-v1-api', 'archived-mobile-legacy', 'archived-ops-scripts'];
 
-export const ORG_REPOS = [...PY_REPOS, ...NODE_REPOS, ...RDS_REPOS, ...CACHE_REPOS].map((r) => r.repo).concat(OTHER_REPOS).sort();
+export const ORG_REPOS = [...NODE_REPOS, ...PY_REPOS, ...JAVA_REPOS, ...CACHE_REPOS].map((r) => r.repo).concat(OTHER_REPOS).sort();
 
 // ---- Events ----------------------------------------------------------------
-const fnArn = (account, name) => `arn:aws:lambda:us-east-1:${account}:function:${name}`;
 
-function buildResources(repos, notFound, preResolved, arnFor) {
-  const all = [...repos.flatMap((r) => r.fns.map((fn) => ({ name: fn, repo: r.repo }))), ...notFound.map((fn) => ({ name: fn, repo: null }))];
-  return all.map((x, i) => {
-    const account = ACCOUNTS[i % 3 === 2 ? 2 : i % 5 === 1 ? 1 : 0];
-    return { arn: arnFor(account, x.name), name: x.name, account, repo: x.repo, status: preResolved.includes(x.name) ? 'RESOLVED' : 'PENDING', updated: '2026-10-26T07:40', deployed: false };
-  });
+function buildResources(repos, arnFor) {
+  return repos.flatMap((r) =>
+    r.fns.map(([name, env, region]) => {
+      const account = ENV_ACCOUNT[env] ?? ACCOUNTS[0];
+      return { arn: arnFor(account, name, region), name, account, region, repo: r.repo, status: 'PENDING', updated: '2026-10-28T07:40', deployed: false };
+    }),
+  );
 }
+const fnArn = (account, name, region = 'us-east-1') => `arn:aws:lambda:${region}:${account}:function:${name}`;
 
-const PY_DESC = [
-  'AWS Lambda will end support for the Python 3.9 runtime on March 3, 2027, in line with the end of community security support for Python 3.9.',
-  'After this date, Lambda will no longer apply security patches or other updates to the Python 3.9 runtime, and functions using it will no longer be eligible for technical support. You will not be able to create new Lambda functions using Python 3.9 starting April 2, 2027, and you will not be able to update existing functions starting May 3, 2027.',
-  'We recommend that you upgrade your functions to Python 3.13 (python3.13). The affected resources tab lists the functions in your accounts that use python3.9. This list is refreshed as you update functions; a function shows RESOLVED once it is no longer on the deprecated runtime.',
-].join('\n\n');
+const lambdaDesc = (from, date, to, id) =>
+  [
+    `AWS Lambda will end support for the ${from} runtime on ${date}.`,
+    `After this date, Lambda will no longer apply security patches or other updates to the ${from} runtime, and functions using it will no longer be eligible for technical support.`,
+    `We recommend that you upgrade your functions to ${to} (${id}). The affected resources tab lists the functions in your accounts that use the deprecated runtime; a function shows RESOLVED once it is no longer on it.`,
+  ].join('\n\n');
+
+const manual = (id, title, service, eventType, changeDate, time, region, unitName, name, summary, action) => ({
+  id, arn: arn(service.toUpperCase().replace(/ /g, ''), `${eventType}_${id}`), title, service, technology: '—', eventType, changeDate, start: changeDate, time, codeChange: false,
+  notFoundReason: 'Not a code change', summary, manualAction: action, unitName, description: `${title}. ${action}`, repos: [],
+  resources: [{ arn: `arn:aws:${service.toLowerCase()}:${region}:${ACCOUNTS[0]}:${name}`, name, account: ACCOUNTS[0], region, repo: null, status: 'PENDING', updated: '2026-10-27T10:00' }],
+});
 
 export const initialEvents = [
   {
@@ -108,59 +100,41 @@ export const initialEvents = [
     arn: arn('LAMBDA', 'AWS_LAMBDA_PLANNED_LIFECYCLE_EVENT'),
     title: 'AWS Lambda end of support for Node.js 16',
     service: 'Lambda', technology: 'Node.js', eventType: 'AWS_LAMBDA_PLANNED_LIFECYCLE_EVENT',
-    changeDate: '2027-02-01', start: '2026-08-01', codeChange: true,
+    changeDate: '2027-02-01', start: '2026-08-01', time: '11:00 PM PST', codeChange: true, scopeBy: 'accounts',
     td: 'AWS/nodejs-version-upgrade', tdLabel: 'Node.js version upgrade', from: 'nodejs16.x', target: 'nodejs22.x', evidence: 'Runtime: nodejs16.x',
-    description: 'AWS Lambda will end support for the Node.js 16 runtime on February 1, 2027. Upgrade affected functions to Node.js 22 (nodejs22.x).',
+    description: lambdaDesc('Node.js 16', 'February 1, 2027', 'Node.js 22', 'nodejs22.x'),
     repos: NODE_REPOS,
-    resources: buildResources(NODE_REPOS, [], [], fnArn),
+    resources: buildResources(NODE_REPOS, fnArn),
   },
   {
-    id: 'rds-pg14',
-    arn: arn('RDS', 'AWS_RDS_PLANNED_LIFECYCLE_EVENT'),
-    title: 'Amazon RDS for PostgreSQL 14 end of standard support',
-    service: 'RDS', technology: 'PostgreSQL', eventType: 'AWS_RDS_PLANNED_LIFECYCLE_EVENT',
-    changeDate: '2027-02-28', start: '2026-08-28', codeChange: true,
-    td: null, tdLabel: null, from: 'postgres 14', target: 'PostgreSQL 16', evidence: 'engine_version = "14.12"',
-    description: 'Amazon RDS for PostgreSQL 14 reaches end of standard support on February 28, 2027. Instances still on 14 after this date are enrolled in RDS Extended Support, which is charged per vCPU-hour. Upgrade to PostgreSQL 16 or later.',
-    repos: RDS_REPOS,
-    resources: buildResources(RDS_REPOS, [], [], (a, n) => `arn:aws:rds:us-east-1:${a}:db:${n}`),
-  },
-  {
-    id: 'lambda-py39',
-    arn: arn('LAMBDA', 'AWS_LAMBDA_PLANNED_LIFECYCLE_EVENT_PY39'),
-    title: 'AWS Lambda end of support for Python 3.9',
+    id: 'lambda-py310',
+    arn: arn('LAMBDA', 'AWS_LAMBDA_PLANNED_LIFECYCLE_EVENT_PY310'),
+    title: 'AWS Lambda end of support for Python 3.10',
     service: 'Lambda', technology: 'Python', eventType: 'AWS_LAMBDA_PLANNED_LIFECYCLE_EVENT',
-    changeDate: '2027-03-03', start: '2026-09-03', codeChange: true,
-    td: 'AWS/python-version-upgrade', tdLabel: 'Python version upgrade', from: 'python3.9', target: 'python3.13', evidence: 'Runtime: python3.9',
-    description: PY_DESC,
+    changeDate: '2027-03-02', start: '2026-09-02', time: '11:00 PM PST', codeChange: true, scopeBy: 'regions',
+    td: 'AWS/python-version-upgrade', tdLabel: 'Python version upgrade', from: 'python3.10', target: 'python3.13', evidence: 'Runtime: python3.10',
+    description: lambdaDesc('Python 3.10', 'March 2, 2027', 'Python 3.13', 'python3.13'),
     repos: PY_REPOS,
-    resources: buildResources(PY_REPOS, PY_NOT_FOUND, PY_PRE_RESOLVED, fnArn),
-  },
-  // Open PLEs that aren't found in code.
-  {
-    id: 'eks-129', arn: arn('EKS', 'AWS_EKS_PLANNED_LIFECYCLE_EVENT'), title: 'Amazon EKS 1.29 end of standard support', service: 'EKS', technology: 'Kubernetes',
-    eventType: 'AWS_EKS_PLANNED_LIFECYCLE_EVENT', changeDate: '2027-03-23', start: '2026-09-23', codeChange: true, notFoundReason: 'No matching code in connected repositories',
-    description: 'Amazon EKS clusters on Kubernetes 1.29 move to extended support on March 23, 2027.', repos: [],
-    resources: [0, 1].map((i) => ({ arn: `arn:aws:eks:us-east-1:${ACCOUNTS[i]}:cluster/platform-${i + 1}`, name: `platform-${i + 1}`, account: ACCOUNTS[i], repo: null, status: 'PENDING', updated: '2026-10-25T18:00' })),
+    resources: buildResources(PY_REPOS, fnArn),
   },
   {
-    id: 'opensearch-1x', arn: arn('ES', 'AWS_ES_PLANNED_LIFECYCLE_EVENT'), title: 'Amazon OpenSearch Service 1.x end of standard support', service: 'OpenSearch', technology: 'OpenSearch',
-    eventType: 'AWS_ES_PLANNED_LIFECYCLE_EVENT', changeDate: '2027-04-30', start: '2026-10-01', codeChange: true, notFoundReason: 'No matching code in connected repositories',
-    description: 'OpenSearch 1.x domains reach end of standard support on April 30, 2027.', repos: [],
-    resources: [{ arn: `arn:aws:es:us-east-1:${ACCOUNTS[0]}:domain/logs-search`, name: 'logs-search', account: ACCOUNTS[0], repo: null, status: 'PENDING', updated: '2026-10-25T18:00' }],
+    id: 'lambda-java11',
+    arn: arn('LAMBDA', 'AWS_LAMBDA_PLANNED_LIFECYCLE_EVENT_JAVA11'),
+    title: 'AWS Lambda end of support for Java 11',
+    service: 'Lambda', technology: 'Java', eventType: 'AWS_LAMBDA_PLANNED_LIFECYCLE_EVENT',
+    changeDate: '2027-07-29', start: '2027-01-29', time: '12:00 AM PDT', codeChange: true, scopeBy: 'regions',
+    td: 'AWS/java-version-upgrade', tdLabel: 'Java version upgrade', from: 'java11', target: 'java21', evidence: 'Runtime: java11',
+    description: lambdaDesc('Java 11', 'July 29, 2027', 'Java 21', 'java21'),
+    repos: JAVA_REPOS,
+    resources: buildResources(JAVA_REPOS, fnArn),
   },
-  {
-    id: 'ec2-retire', arn: arn('EC2', 'AWS_EC2_INSTANCE_RETIREMENT_SCHEDULED'), title: 'Amazon EC2 instance retirement', service: 'EC2', technology: '—',
-    eventType: 'AWS_EC2_INSTANCE_RETIREMENT_SCHEDULED', changeDate: '2026-11-18', start: '2026-10-18', codeChange: false, notFoundReason: 'Not a code change',
-    description: 'One or more EC2 instances are scheduled for retirement because of degraded underlying hardware. Stop and start the instance to move it to new hardware.', repos: [],
-    resources: [{ arn: `arn:aws:ec2:us-east-1:${ACCOUNTS[1]}:instance/i-0a1b2c3d4e5f60718`, name: 'i-0a1b2c3d4e5f60718', account: ACCOUNTS[1], repo: null, status: 'PENDING', updated: '2026-10-24T10:00' }],
-  },
-  {
-    id: 'dx-maint', arn: arn('DIRECTCONNECT', 'AWS_DIRECTCONNECT_MAINTENANCE_SCHEDULED'), title: 'AWS Direct Connect planned maintenance', service: 'Direct Connect', technology: '—',
-    eventType: 'AWS_DIRECTCONNECT_MAINTENANCE_SCHEDULED', changeDate: '2026-11-04', start: '2026-11-04', codeChange: false, notFoundReason: 'Not a code change',
-    description: 'Planned maintenance on a Direct Connect device may interrupt connectivity for up to 2 hours.', repos: [],
-    resources: [{ arn: `arn:aws:directconnect:us-east-1:${ACCOUNTS[0]}:dxcon/dxcon-ffabc123`, name: 'dxcon-ffabc123', account: ACCOUNTS[0], repo: null, status: 'PENDING', updated: '2026-10-20T09:00' }],
-  },
+  // Not code changes: AWS Health lists them, AWS Transform doesn't offer a fix.
+  manual('ecs-retire-1', 'Amazon ECS task patching retirement', 'ECS', 'AWS_ECS_TASK_PATCHING_RETIREMENT', '2026-10-29', '11:00 PM PDT', 'us-east-1', 'task', 'task/orders/3f9a1c2b',
+    'Tasks on an outdated platform version are replaced', 'AWS replaces the task. Make sure your service can restart cleanly.'),
+  manual('ecs-retire-2', 'Amazon ECS task patching retirement', 'ECS', 'AWS_ECS_TASK_PATCHING_RETIREMENT', '2026-11-02', '9:00 AM PST', 'us-east-2', 'task', 'task/payouts/8e21d0aa',
+    'Tasks on an outdated platform version are replaced', 'AWS replaces the task. Make sure your service can restart cleanly.'),
+  manual('ec2-retire', 'Amazon EC2 instance scheduled retirement', 'EC2', 'AWS_EC2_INSTANCE_RETIREMENT_SCHEDULED', '2026-11-14', '2:00 AM PST', 'us-east-1', 'instance', 'instance/i-0a1b2c3d4e5f60718',
+    'Underlying host is being retired', 'Stop and start the instance to move it to a new host.'),
 ];
 
 // Arrives later via EventBridge (Screen 11).
@@ -169,11 +143,11 @@ export const NEW_EVENT = {
   arn: arn('ELASTICACHE', 'AWS_ELASTICACHE_PLANNED_LIFECYCLE_EVENT'),
   title: 'ElastiCache for Redis OSS v6 end of standard support',
   service: 'ElastiCache', technology: 'Redis', eventType: 'AWS_ELASTICACHE_PLANNED_LIFECYCLE_EVENT',
-  changeDate: '2027-01-31', start: '2026-10-26', codeChange: true,
+  changeDate: '2027-01-31', start: '2026-10-28', time: '11:00 PM PST', codeChange: true,
   td: null, tdLabel: null, from: 'redis 6.2', target: 'Valkey 8.0', evidence: 'engine_version = "6.2"',
   description: 'ElastiCache for Redis OSS version 6 reaches end of standard support on January 31, 2027. Upgrade to Valkey 8 or Redis OSS 7.1.',
   repos: CACHE_REPOS,
-  resources: buildResources(CACHE_REPOS, [], [], (a, n) => `arn:aws:elasticache:us-east-1:${a}:replicationgroup:${n}`),
+  resources: buildResources(CACHE_REPOS, (a, n, region) => `arn:aws:elasticache:${region}:${a}:replicationgroup:${n}`),
   campaignMatch: 'C-elasticache',
   // The matching campaign already published a tested skill for engine upgrades.
   reuseSkill: { status: 'ready', saveAs: 'published', heldOut: 2, passed: 2, name: 'elasticache-engine-upgrade' },
@@ -186,14 +160,15 @@ export const repoFixture = (eventId, repo) => eventById(eventId)?.repos.find((r)
 // ---- Findings & groups -----------------------------------------------------
 // Findings are added to the CM findings list when the PLE analysis finishes.
 const EXTRA_EVIDENCE = {
-  python: [['requirements.txt', 3, 'python_requires=">=3.9,<3.10"'], ['.github/workflows/ci.yml', 19, 'python-version: "3.9"']],
+  python: [['requirements.txt', 3, 'python_requires=">=3.10,<3.11"'], ['.github/workflows/ci.yml', 19, 'python-version: "3.10"']],
   node: [['package.json', 5, '"engines": { "node": "16.x" }'], ['.nvmrc', 1, '16']],
+  java: [['pom.xml', 18, '<maven.compiler.release>11</maven.compiler.release>'], ['.github/workflows/ci.yml', 22, "java-version: '11'"]],
 };
 
 export function buildFindings(event, startSeq) {
   let seq = startSeq;
   const out = [];
-  const extras = event.technology === 'Python' ? EXTRA_EVIDENCE.python : event.technology === 'Node.js' ? EXTRA_EVIDENCE.node : [];
+  const extras = { Python: EXTRA_EVIDENCE.python, 'Node.js': EXTRA_EVIDENCE.node, Java: EXTRA_EVIDENCE.java }[event.technology] ?? [];
   event.repos.forEach((r) => {
     for (let i = 0; i < r.findings; i++) {
       const [file, line, evidence] = i === 0 ? [r.file, r.line, event.evidence] : extras[(i - 1) % extras.length] ?? [r.file, r.line + 12, event.evidence];
@@ -214,7 +189,7 @@ export function buildFindings(event, startSeq) {
         line,
         evidence,
         // The IaC finding covers the functions; supporting findings cover none.
-        functions: i === 0 ? r.fns : [],
+        functions: i === 0 ? r.fns.map(([name]) => name) : [],
       });
     }
   });
@@ -243,9 +218,9 @@ export function buildGroup(event, findings, extra = {}) {
 
 export function shortName(event) {
   const m = {
-    'lambda-py39': 'Lambda Python 3.9',
     'lambda-node16': 'Lambda Node.js 16',
-    'rds-pg14': 'RDS for PostgreSQL 14',
+    'lambda-py310': 'Lambda Python 3.10',
+    'lambda-java11': 'Lambda Java 11',
     'cache-redis6': 'ElastiCache Redis OSS 6',
   };
   return m[event.id] ?? event.title;
@@ -270,20 +245,22 @@ export const prettyTarget = (t) => {
   if (m) return `Python ${m[1]}`;
   m = t.match(/^nodejs(\d+)\.x$/);
   if (m) return `Node.js ${m[1]}`;
+  m = t.match(/^java(\d+)$/);
+  if (m) return `Java ${m[1]}`;
   return t;
 };
 
 export const TARGETS = {
   Python: ['python3.12', 'python3.13'],
   'Node.js': ['nodejs20.x', 'nodejs22.x'],
-  PostgreSQL: ['PostgreSQL 16', 'PostgreSQL 17'],
+  Java: ['java17', 'java21'],
   Redis: ['Valkey 8.0', 'Redis OSS 7.1'],
 };
 
 export const CAMPAIGN_NAMES = {
-  'lambda-py39': ['Eliminate Python 3.9 Lambdas', (t) => `All Lambda functions on ${t}`],
   'lambda-node16': ['Eliminate Node.js 16 Lambdas', (t) => `All Lambda functions on ${t}`],
-  'rds-pg14': ['Upgrade RDS for PostgreSQL 14', (t) => `All RDS for PostgreSQL instances on ${t}`],
+  'lambda-py310': ['Eliminate Python 3.10 Lambdas', (t) => `All Lambda functions on ${t}`],
+  'lambda-java11': ['Eliminate Java 11 Lambdas', (t) => `All Lambda functions on ${t}`],
   'cache-redis6': ['Retire Redis OSS 6', (t) => `All ElastiCache clusters on ${t}`],
 };
 

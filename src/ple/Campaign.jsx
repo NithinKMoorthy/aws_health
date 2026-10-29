@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { fmtDate, fmtDateTime } from '../data';
+import { fmtDate, fmtDateTime, typeLabel } from '../data';
 import { navigate, useStore } from '../store';
 import { Alert, Breadcrumbs, Button, Container, Icon, Link, Status, Table, Tabs } from '../components/ui';
 import { NotFound } from '../cm/Findings';
 import { RESOLVED_HEALTH } from './reducer';
-import { DemoPanel, Meter, PleTag, Ring, shortTitle, unit } from './common';
+import { DemoPanel, EventHeader, eventsTitle, fromName, Meter, MultiEventHeader, noticeTitle, PleTag, Ring, shortTitle, targetName, unit, unitFor } from './common';
+import { MOCK_TODAY, ORG } from './data';
 
 // Screen 9 (campaign in progress) and Screen 10 (verification through AWS Health).
 
@@ -63,6 +64,12 @@ export function CampaignDetail({ id, query }) {
     dispatch({ type, campaignId: c.id, repo, now: Date.now() });
     if (msg) notify(msg);
   };
+  // A campaign for one lifecycle event is tracked against that event.
+  // Campaigns for one lifecycle event (alone, or launched together as a set) are tracked against their events.
+  const eventOf = (x) => (x.groups.length === 1 && x.groups[0].pleId ? state.ple.events.find((e) => e.id === x.groups[0].pleId) : null);
+  const peers = c.setId ? state.ple.campaigns.filter((x) => x.setId === c.setId) : [c];
+  const items = peers.map((x) => ({ c: x, event: eventOf(x) })).filter((x) => x.event).sort((a, b) => a.event.changeDate.localeCompare(b.event.changeDate));
+  if (items.length === peers.length && items.length) return <EventCampaign items={items} />;
 
   const repoCols = [
     { id: 'r', header: 'Repository', cell: (r) => <strong>{r.repo}</strong> },
@@ -173,6 +180,211 @@ export function CampaignDetail({ id, query }) {
       )}
 
       {tab === 'verify' && pleIds.map((pid) => <Verification key={pid} c={c} pleId={pid} onFailures={() => { setTab('progress'); setTrackBy('repo'); }} />)}
+    </div>
+  );
+}
+
+// ---- Campaigns tracked against their lifecycle events ---------------------------
+// One campaign per event. Campaigns launched together from several events (same
+// setId) share one page, one section per event, nearest deadline first.
+
+const shortDate = (iso) => new Date(`${iso}T12:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+const addDays = (iso, d) => new Date(new Date(`${iso}T12:00`).getTime() + d * 86400000).toISOString().slice(0, 10);
+const CADENCE_DAYS = { daily: 1, weekly: 7, monthly: 30 };
+const cap = (x) => x.charAt(0).toUpperCase() + x.slice(1);
+
+function EventCampaign({ items }) {
+  const { state, dispatch, notify } = useStore();
+  const [open, setOpen] = useState(null);
+  const multi = items.length > 1;
+  const events = items.map((x) => x.event);
+  const act = (type, cid, repo, msg) => {
+    dispatch({ type, campaignId: cid, repo, now: Date.now() });
+    if (msg) notify(msg);
+  };
+  const org = state.sources.find((s) => s.id === 'src-ple')?.org ?? ORG;
+  const all = events.flatMap((e) => e.resources);
+  const n = all.length;
+  const u = unitFor(events, n);
+  const one = unitFor(events, 1);
+  const service = events.every((e) => e.service === events[0].service) ? events[0].service : 'AWS';
+  const resolved = all.filter((r) => r.status === 'RESOLVED').length;
+  const runs = items.flatMap(({ c }) => c.repos);
+  const k = counts({ repos: runs });
+  const opened = runs.filter((r) => r.pr).length;
+  const started = shortDate(items[0].c.createdAt);
+
+  const rowState = (r, e) => {
+    const fns = e.resources.filter((x) => x.repo === r.repo);
+    if (r.status === 'merged' && fns.length && fns.every((f) => f.status === 'RESOLVED')) return ['resolved', 'Resolved', `Running ${e.target}`];
+    if (r.status === 'merged') return ['merged', 'Merged', r.deployed ? 'Deployed · waiting for AWS Health' : 'Waiting for your next deploy'];
+    if (r.status === 'change_ready') return ['review', 'In review', `Opened ${started} · approval needed`];
+    if (r.status === 'failed') return ['failed', 'Failed validation', r.validation ?? 'AWS Transform validation failed'];
+    if (r.status === 'draft_pr') return ['merged', 'Draft PR', "Doesn't count as complete"];
+    if (r.status === 'manual') return ['merged', 'Manual work', `${r.owner} notified`];
+    return ['running', r.status === 'queued' ? 'Queued' : 'Validating', 'AWS Transform is preparing the change'];
+  };
+  const states = items.flatMap(({ c, event }) => c.repos.map((r) => rowState(r, event)[0]));
+  const has = (st) => states.includes(st);
+  const stage = resolved === n ? ['resolved', 'All resolved'] : has('running') ? ['running', 'Validating'] : has('review') || has('failed') ? ['review', 'In review'] : ['merged', 'Deploying'];
+  const cur = resolved === n ? 4 : has('running') || has('review') ? 0 : runs.some((r) => r.status === 'merged' && !r.deployed) ? 1 : 2;
+  const prNote = k.failed ? `${k.failed} failed validation` : k.running ? `${k.running} still validating` : 'All passed validation';
+  const first = events[0];
+
+  const next = [
+    ['Your teams review and merge', 'Each pull request already passed AWS Transform validation. Nothing merges without approval.'],
+    ['You deploy as usual', 'AWS Transform doesn’t deploy. Use your own pipeline.'],
+    [`We confirm each ${one}`, `Resolved updates when ${service} shows the ${one} on its new runtime.`],
+    multi ? ['The events close', `AWS Health marks each event resolved once its ${u} are upgraded.`] : ['The event closes', `AWS Health marks it resolved once all ${n} are upgraded.`],
+  ];
+
+  // Continuous analysis chosen at setup (step 4).
+  const schedule = state.ple.schedule;
+  const continuous = (schedule?.analyses ?? []).map((a) => {
+    if (a.type === 'ple') return { key: a.type, label: 'Lifecycle events', value: <>{cap(a.cadence)} · next {shortDate(addDays(MOCK_TODAY, CADENCE_DAYS[a.cadence] ?? 7))}</> };
+    const run = state.analyses.find((x) => x.type === a.type);
+    return {
+      key: a.type,
+      label: typeLabel(a.type),
+      value: (
+        <>
+          {cap(a.cadence)} ·{' '}
+          {run ? (
+            <Link onClick={() => navigate(`/app/cm/analyses/${run.id}`)}><strong>{run.status === 'Completed' ? `${run.findings} findings` : 'running'}</strong></Link>
+          ) : (
+            'starts after the pull requests open'
+          )}
+        </>
+      ),
+    };
+  });
+
+  const table = (c, event) => (
+    <table className="table plain">
+      <thead>
+        <tr><th>Repository</th><th>{cap(unit(event, 2))}</th><th>Pull request</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {c.repos.map((r) => {
+          const [tone, label, sub] = rowState(r, event);
+          const key = `${c.id}:${r.repo}`;
+          return (
+            <React.Fragment key={key}>
+              <tr>
+                <td><strong>{r.repo}</strong></td>
+                <td>{event.resources.filter((x) => x.repo === r.repo).map((f) => f.name).join(', ') || <span className="muted">—</span>}</td>
+                <td>{r.pr ? <Link external onClick={() => notify(`Opens ${r.repo} pull request #${r.pr} on GitHub (mock).`, 'info')}>#{r.pr}</Link> : <span className="muted">—</span>}</td>
+                <td>
+                  <span className={`stage stage-${tone}`}>{label}</span>
+                  <div className="muted small">
+                    {sub}
+                    {tone === 'failed' && <> · <Link onClick={() => setOpen(open === key ? null : key)}>{open === key ? 'Hide details' : 'Details'}</Link></>}
+                  </div>
+                </td>
+              </tr>
+              {tone === 'failed' && open === key && (
+                <tr className="row-expand">
+                  <td colSpan={4}>
+                    <p><strong>Why it failed:</strong> {r.failure?.reason ?? 'AWS Transform validation failed.'}</p>
+                    {r.failure?.log && <pre className="code-block">{r.failure.log.join('\n')}</pre>}
+                    <div className="inline-gap">
+                      <Button onClick={() => { act('PLE_RETRY', c.id, r.repo, `Retrying ${r.repo}.`); setOpen(null); }}>Retry</Button>
+                      <Button onClick={() => act('PLE_DRAFT_PR', c.id, r.repo, `Draft PR opened on ${r.repo}. It won't count as complete.`)}>Open as draft PR</Button>
+                      <Button variant="link" onClick={() => act('PLE_MANUAL', c.id, r.repo, `${r.repo} marked for manual work; ${r.owner} notified.`)}>Mark for manual work</Button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+
+  return (
+    <div className="page get-started">
+      <Breadcrumbs
+        items={[
+          { label: 'Continuous modernization', onClick: () => navigate('/app/cm/dashboard') },
+          multi ? { label: eventsTitle(events), onClick: () => navigate('/app/cm/findings', { tab: 'ple' }) } : { label: noticeTitle(first), onClick: () => navigate(`/app/cm/findings/G-${first.id}`) },
+          { label: 'Campaign' },
+        ]}
+      />
+      {multi ? <MultiEventHeader events={events} compact /> : <EventHeader event={first} />}
+      <div className="ec-title">
+        <h1>{multi ? `${service} runtime upgrades` : items[0].c.name}</h1>
+        <span className={`stage stage-${stage[0]}`}>{stage[1]}</span>
+      </div>
+      <p className="muted ec-sub">
+        {multi ? `${items.length} campaigns, one per event` : `Campaign · ${fromName(first)} → ${first.target}`} · {k.total} pull {k.total === 1 ? 'request' : 'requests'} in {org} · started {started}
+      </p>
+      <section className="ec-stats">
+        <div><span>Pull requests opened</span><strong>{opened} <small>of {k.total}</small></strong><span className="muted">{prNote}</span></div>
+        <div><span>Merged</span><strong>{k.merged} <small>of {k.total}</small></strong><span className="muted">By your teams</span></div>
+        <div>
+          <span>{multi ? `${cap(u)} upgraded` : `${cap(u)} on ${targetName(first)}`}</span>
+          <strong className="blue">{resolved} <small>of {n}</small></strong>
+          <span className="muted">Confirmed in {service} after deploy</span>
+        </div>
+      </section>
+      <div className="ec-layout">
+        <div className="ec-table">
+          {items.map(({ c, event }) => {
+            const k2 = event.resources.length;
+            const done2 = event.resources.filter((r) => r.status === 'RESOLVED').length;
+            return (
+              <React.Fragment key={c.id}>
+                {multi && (
+                  <div className="ec-section">
+                    <strong>{fromName(event)} → {event.target}</strong>
+                    <span className="muted small">Due {fmtDate(event.changeDate)}</span>
+                    <span className="grow" />
+                    <span className="muted small">{done2} of {k2} {unit(event, k2)} upgraded</span>
+                  </div>
+                )}
+                {table(c, event)}
+              </React.Fragment>
+            );
+          })}
+        </div>
+        <aside className="ec-side">
+          <section className="ec-card">
+            <h2>What happens next</h2>
+            <ol className="ec-next">
+              {next.map(([t, d], i) => (
+                <li key={t} className={i < cur ? 'done' : i === cur ? 'current' : ''}>
+                  <span className="ec-dot">{i < cur && <Icon.check />}</span>
+                  <div><strong>{t}</strong><p className="muted">{d}</p></div>
+                </li>
+              ))}
+            </ol>
+          </section>
+          {continuous.length > 0 && (
+            <section className="ec-card">
+              <h2>Running continuously</h2>
+              <dl className="ec-cont">
+                {continuous.map((x) => (
+                  <React.Fragment key={x.key}>
+                    <dt>{x.label}</dt>
+                    <dd className="muted">{x.value}</dd>
+                  </React.Fragment>
+                ))}
+              </dl>
+            </section>
+          )}
+        </aside>
+      </div>
+      <DemoPanel>
+        <div className="demo-row">
+          <span>Owners merge every ready pull request</span>
+          <Button disabled={!k.ready} onClick={() => items.forEach(({ c }) => c.repos.filter((r) => r.status === 'change_ready').forEach((r) => act('PLE_MERGE_PR', c.id, r.repo)))}>Merge {k.ready} ready</Button>
+        </div>
+        <div className="demo-row">
+          <span>Teams deploy, and AWS Health refreshes (skips its ~72-hour delay)</span>
+          <Button onClick={() => { dispatch({ type: 'PLE_HEALTH_REFRESH', now: Date.now() }); notify('AWS Health refreshed.', 'info'); }}>Fast-forward AWS Health</Button>
+        </div>
+      </DemoPanel>
     </div>
   );
 }

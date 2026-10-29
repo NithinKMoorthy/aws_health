@@ -22,6 +22,8 @@ function blankPle() {
     events: initialEvents,
     onboarded: false,
     entryEventId: null,
+    entryEventIds: [],
+    schedule: null,
     setup: { provider: null, repos: [], scope: null, skipped: false },
     eventBridge: false,
     analysis: null,
@@ -94,7 +96,7 @@ function scheduleRepos(state, groupIds, opts, now) {
     repos.forEach((repo) => {
       const fx = repoFixture(g.pleId, repo) ?? {};
       const fids = fs.filter((f) => f.repo === repo).map((f) => f.id);
-      rows.push({ repo, groupId: gid, status: 'queued', outcome: fx.outcome ?? 'merge', owner: fx.owner ?? '@unassigned', prNum: fx.pr ?? 100 + rows.length, first: !!fx.first, after: fx.after, failure: fx.failure ?? null, findingIds: fids, pr: null, validation: null, deployed: false });
+      rows.push({ repo, groupId: gid, status: 'queued', outcome: fx.outcome ?? 'merge', hold: !!fx.hold, owner: fx.owner ?? '@unassigned', prNum: fx.pr ?? 100 + rows.length, first: !!fx.first, after: fx.after, failure: fx.failure ?? null, findingIds: fids, pr: null, validation: null, deployed: false });
     });
   });
   const hasFirst = rows.some((r) => r.first);
@@ -120,7 +122,11 @@ export function pleReducer(state, action) {
   const now = action.now ?? Date.now();
   switch (action.type) {
     case 'PLE_SET_ENTRY':
-      return setPle(state, { entryEventId: action.eventId });
+      return setPle(state, { entryEventId: action.eventId, entryEventIds: action.eventIds ?? [action.eventId] });
+
+    case 'PLE_SET_SCHEDULE':
+      // Continuous analysis chosen at setup: [{ type, cadence }], plus the shared day and time.
+      return setPle(state, { schedule: action.schedule, eventBridge: action.schedule.analyses.some((a) => a.type === 'ple') || state.ple.eventBridge });
 
     case 'PLE_CONNECT_REPOS': {
       const others = state.sources.filter((s) => s.id !== 'src-ple');
@@ -132,7 +138,10 @@ export function pleReducer(state, action) {
 
     case 'PLE_HEALTH_ACCESS':
       return setPle(state, {
-        setup: { ...state.ple.setup, scope: action.scope, skipped: action.scope === 'skipped', comprehensive: action.comprehensive },
+        setup: {
+          ...state.ple.setup, scope: action.scope, skipped: action.scope === 'skipped', comprehensive: action.comprehensive,
+          pleCadence: action.pleCadence ?? 'weekly', tdType: action.tdType ?? 'td-comprehensive', tdCadence: action.tdCadence ?? 'weekly',
+        },
         eventBridge: action.eventBridge ?? state.ple.eventBridge,
         comprehensive: action.comprehensive,
       });
@@ -191,7 +200,7 @@ export function pleReducer(state, action) {
         const g = state.ple.groups.find((x) => x.id === gid);
         return { id: gid, name: g.shortName, pleId: g.pleId };
       });
-      const c = { id, name: action.name, target: action.target, dueDate: action.dueDate, groups, createdAt: MOCK_TODAY, repos, checks: action.checks };
+      const c = { id, name: action.name, target: action.target, dueDate: action.dueDate, groups, createdAt: MOCK_TODAY, repos, checks: action.checks, setId: action.setId ?? null };
       return {
         ...setPle(state, { campaigns: [c, ...state.ple.campaigns] }),
         seq: state.seq + 1,
@@ -209,7 +218,7 @@ export function pleReducer(state, action) {
     }
 
     case 'PLE_MERGE_PR':
-      return mapRepo(state, action.campaignId, action.repo, (r) => (r.status === 'change_ready' ? { ...r, status: 'merged', mergeAt: null, deployAt: now + DEPLOY_MS } : r));
+      return mapRepo(state, action.campaignId, action.repo, (r) => (r.status === 'change_ready' ? { ...r, status: 'merged', mergeAt: null, deployAt: r.hold ? null : now + DEPLOY_MS } : r));
 
     case 'PLE_RETRY': {
       // A retry picks up the fix the owner pushed; it passes validation.
@@ -278,7 +287,7 @@ export function plePending(ple) {
   if (ple.groups.some((g) => g.skill?.status === 'generating')) return true;
   return ple.campaigns.some((c) =>
     c.repos.some(
-      (r) => r.status === 'queued' || r.status === 'running' || (r.status === 'change_ready' && r.mergeAt) || (r.status === 'merged' && (!r.deployed || r.resolveAt)),
+      (r) => r.status === 'queued' || r.status === 'running' || (r.status === 'change_ready' && r.mergeAt) || (r.status === 'merged' && ((!r.deployed && r.deployAt) || r.resolveAt)),
     ),
   );
 }
@@ -363,7 +372,8 @@ export function pleTick(state, now, force = false) {
           x = { ...x, status: 'change_ready', validation: 'Passed', pr: x.prNum, mergeAt: x.outcome === 'merge' ? now + MERGE_MS : null };
         }
       }
-      if (x.status === 'change_ready' && x.mergeAt && now >= x.mergeAt) x = { ...x, status: 'merged', mergeAt: null, deployAt: now + DEPLOY_MS };
+      // Held repos stay merged until the team's next deploy (AWS Health fast-forward in the demo).
+      if (x.status === 'change_ready' && x.mergeAt && now >= x.mergeAt) x = { ...x, status: 'merged', mergeAt: null, deployAt: x.hold ? null : now + DEPLOY_MS };
       if (x.status === 'merged' && !x.deployed && x.deployAt && now >= x.deployAt) x = { ...x, deployed: true, deployAt: null, resolveAt: now + HEALTH_MS };
       if (x.status === 'merged' && x.deployed && x.resolveAt && now >= x.resolveAt) {
         toResolve.push(x);

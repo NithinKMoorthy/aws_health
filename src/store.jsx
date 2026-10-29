@@ -9,7 +9,7 @@ import {
   repoTech,
   typeLabel,
 } from './data';
-import { initialPleState, plePending, pleReducer, pleTick, RESOLVED_HEALTH } from './ple/reducer';
+import { CM_CUSTOMER_KEY, initialPleState, plePending, pleReducer, pleTick, RESOLVED_HEALTH } from './ple/reducer';
 
 // Mock "backend": everything lives in memory and resets on reload.
 // Long-running work (analyses, remediations, connections, stack deploys) is
@@ -235,7 +235,7 @@ export const useStore = () => useContext(StoreCtx);
 // Routes look like #/console, #/app/cm/findings?repo=MKPMobile, etc.
 
 function parseHash() {
-  const raw = window.location.hash.replace(/^#/, '') || '/console/health/lambda-py39';
+  const raw = window.location.hash.replace(/^#/, '') || '/console/health';
   const [path, qs = ''] = raw.split('?');
   return { path, parts: path.split('/').filter(Boolean), query: Object.fromEntries(new URLSearchParams(qs)) };
 }
@@ -254,6 +254,19 @@ export function navigate(path, query) {
   const qs = query ? `?${new URLSearchParams(query)}` : '';
   window.location.hash = `${path}${qs}`;
   window.scrollTo(0, 0);
+}
+
+// Back to a brand-new customer at the AWS Health entry point. All other state is
+// in memory, so a reload clears it.
+export function resetPrototype() {
+  if (!window.confirm('Reset the prototype? This clears all progress and returns to AWS Health.')) return;
+  try {
+    window.localStorage.removeItem(CM_CUSTOMER_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+  window.location.hash = '/console/health';
+  window.location.reload();
 }
 
 // ---- Derived selectors -----------------------------------------------------

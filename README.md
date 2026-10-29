@@ -1,50 +1,45 @@
 # AWS Health → AWS Transform: guided remediation (mock)
 
-**Purpose.** A customer opens AWS Health and sees a planned lifecycle event (PLE), for example *Lambda Python 3.9
-end of support*, with a list of affected resources and a deadline. Most customers don't know what that means for
-their code or what to do next. This prototype shows how AWS Transform guides them from that notice to a closed PLE:
+**Purpose.** A customer opens AWS Health and sees planned lifecycle events (PLEs), for example *Lambda end of support:
+Node.js 16*, with affected resources and a deadline. This prototype shows how AWS Transform takes them from that notice to
+closed events, and keeps them ahead of the next one (the CM first-run onboarding spec):
 
-1. **Understand.** The Health event explains what is changing, when, and which resources are affected, then offers one
-   next step: **Remediate with AWS Transform**.
-2. **Get set up.** A welcome page keeps the PLE context (time remaining, affected resources). A wizard then connects their
-   repositories and grants AWS Health access, one step at a time.
-3. **See the affected code.** AWS Transform matches each affected resource to the file and line that defines it, and
-   lists the resources it couldn't find.
-4. **Approve a plan.** The user sees which fixes run, in which repositories, and with what transformation, before anything changes.
-5. **Fix and verify.** A campaign opens pull requests, tracks validation and merges, and confirms that AWS Health
-   marks each resource RESOLVED.
+1. **Understand.** AWS Health › Scheduled changes summarizes what AWS Transform can resolve (8 of 11 changes, 16 Lambda
+   functions on Node.js 16, Python 3.10 and Java 11) and offers **Upgrade** per event, per selection, or for all of them.
+2. **Get started.** One event, or several at once, pinned at the top with deadlines and affected functions.
+3. **Set up in four steps:** 1 connect source (provider, personal access token, AWS Health access), 2 find the affected
+   code, 3 review the plan (read-only, generated from the search; nothing is created), 4 schedule continuous analysis and
+   open pull requests.
+4. **Fix and verify.** One campaign per event (several events share one page), tracked until Lambda shows every function
+   on its new runtime and AWS Health marks the events resolved.
 
-Continuous modernization (findings, analyses, campaigns) is the engine behind these steps; AWS Health is the entry point.
-
-Clickable mock rebuilt from the screenshots in `../cm-governor-ga/references`. All data is in memory (seeded in
-`src/data.js` and `src/ple/data.js`) and resets on reload.
+Clickable mock. All data is in memory (seeded in `src/data.js` and `src/ple/data.js`) and resets on reload.
 
 ```
 npm install
 npm run dev     # http://127.0.0.1:5174
 ```
 
-## Walkthrough (Screens 1–11)
+## Walkthrough
 
-The app opens at `#/console/health/lambda-py39` (AWS Health › Scheduled changes › Lambda Python 3.9). Click
-**Remediate with AWS Transform** (opens the deep link in a new tab).
+The app opens on AWS Health › Scheduled changes. Click **Upgrade 9 functions** (Node.js 16 only) or **Upgrade 16 functions**
+(all three runtimes).
 
 | Screen | Route |
 |---|---|
-| 1 Health PLE detail + CTA | `#/console/health/<eventId>` |
-| 2 Welcome with PLE context | `#/app/ple/welcome?event=<arn>&account=…&td=…&source=health` |
-| 3–5 Setup wizard: provider · token · source details · review and connect · Health access · find affected code | `#/app/ple/{provider,token,source,review,health,analyze}` |
-| 6 Findings, grouped; the PLE you came for is pinned on top (source filter: AWS Health PLEs) | `#/app/cm/findings?tab=ple` |
-| 7 Group detail + PLE details drawer | `#/app/cm/findings/<groupId>` |
-| 8 Remediation plan (from Findings → select → Create campaign, or a group's Create campaign) | `#/app/cm/campaigns/new?findings=<ids>` · `#/app/cm/findings/<groupId>/plan` |
-| Review specialized skill (type C groups, e.g. `G-rds-pg14`) | `#/app/cm/findings/<groupId>/skill` |
-| 9–10 Campaign progress · Verification | `#/app/cm/campaigns/<id>` |
-| 11 New PLE arrives (banner on Findings) | `#/app/cm/findings` |
+| AWS Health › Scheduled changes (one row per event per Region) | `#/console/health` |
+| Get started, one event | `#/app/ple/welcome?event=<arn>&account=…&source=health` |
+| Get started, several events | `#/app/ple/welcome?events=<id,id,…>&account=…&source=health` |
+| Setup steps 1–4 | `#/app/ple/{connect,analyze,plan,schedule}` |
+| Campaign tracked against its event(s) | `#/app/cm/campaigns/<id>` |
+| Findings, grouped; PLE groups pinned (source filter: AWS Health PLEs) | `#/app/cm/findings?tab=ple` |
+| New PLE arrives (ElastiCache Redis OSS 6, banner on Findings) | `#/app/cm/findings` |
 
 Code lives in `src/ple/` (seed data, reducer/simulation, screens). Dashed **Demo controls (mock only)** panels reach the
-alternate states: existing CM customer, account mismatch, auth failure/admin approval, no Health API, new PLE arrival,
-owners merging PRs, and fast-forwarding AWS Health's ~72h refresh. Finishing setup sets `localStorage['atx-mock-cm-customer']`
-so later deep links behave like an existing customer; reset it from the Health page demo panel.
+alternate states: existing CM customer, account mismatch, auth failure/admin approval, new PLE arrival, owners merging PRs,
+and fast-forwarding AWS Health's ~72h refresh (which also deploys the held `statements` and `billing-exports` merges).
+Finishing step 2 sets `localStorage['atx-mock-cm-customer']` so later deep links behave like an existing customer; reset
+it from the Health page demo panel.
 
 ## Rest of the CM console
 

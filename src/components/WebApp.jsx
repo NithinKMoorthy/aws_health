@@ -4,6 +4,7 @@ import { navigate, useStore } from '../store';
 import { ChatPanel } from './Chat';
 import { Container, Icon, Link, Table, TransformLogo } from './ui';
 import { CMPage } from '../cm/CMPage';
+import { ResetPrototype } from './Console';
 import { PleOnboarding } from '../ple/Onboarding';
 
 function SideNav({ onClose, current }) {
@@ -83,6 +84,7 @@ const AppFooter = () => (
     <span>Cookie preferences</span>
     <span>Documentation</span>
     <span>© 2026, Amazon Web Services, Inc. or its affiliates. All rights reserved.</span>
+    <ResetPrototype />
   </footer>
 );
 
@@ -137,6 +139,11 @@ export function WebApp({ parts, query }) {
     return () => window.removeEventListener('atx-chat-prompt', open);
   }, []);
   const section = parts[1] ?? 'chat';
+  // Campaign detail pages need the full width; the chat stays one click away.
+  const campaignDetail = section === 'cm' && parts[2] === 'campaigns' && !!parts[3] && parts[3] !== 'new';
+  useEffect(() => {
+    if (campaignDetail) setChatOpen(false);
+  }, [campaignDetail]);
 
   let body;
   if (section === 'cm') {
@@ -179,7 +186,7 @@ export function WebApp({ parts, query }) {
           <TransformLogo size={40} />
         </button>
       )}
-      {section !== 'cm' && <AppFooter />}
+      <AppFooter />
     </div>
   );
 }

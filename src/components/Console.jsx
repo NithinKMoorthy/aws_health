@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { TENANT } from '../data';
-import { navigate, useStore } from '../store';
+import { navigate, resetPrototype, useStore } from '../store';
 import { Alert, Button, Container, CopyText, Icon, KeyValue, Link, Modal, Status, Tabs, TransformLogo } from './ui';
 
 export function ConsoleTopBar() {
@@ -45,7 +45,14 @@ export const ConsoleFooter = () => (
     <span>Privacy</span>
     <span>Terms</span>
     <span>Cookie preferences</span>
+    <ResetPrototype />
   </footer>
+);
+
+export const ResetPrototype = () => (
+  <button type="button" className="reset-prototype" onClick={resetPrototype} title="Mock only: clear all progress and start over">
+    Reset prototype
+  </button>
 );
 
 const RegionNotice = () => (

@@ -10,7 +10,7 @@ function Router() {
   const { toasts, dismissToast } = useStore();
   let page;
   if (parts[0] === 'app') page = <WebApp parts={parts} query={query} />;
-  else if (parts[1] === 'health') page = <HealthDashboard id={parts[2]} query={query} />;
+  else if (parts[1] === 'health') page = <HealthDashboard />;
   else if (parts[1]) page = <ServiceManagement section={parts[1]} />;
   else page = <ConsoleLanding />;
   return (
