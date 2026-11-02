@@ -28,23 +28,23 @@ function hash(s) {
 // outcome: what the first campaign run does (merge | ready | fail).
 // hold: merged, but waits for the team's next deploy (until AWS Health is fast-forwarded).
 const NODE_REPOS = [
-  { repo: 'bff-graphql', findings: 2, fns: [['bff-graphql', 'prod', 'us-east-1']], outcome: 'merge', owner: '@web-team', file: 'serverless.yml', line: 12, pr: 142 },
-  { repo: 'bff-session', findings: 1, fns: [['bff-session', 'staging', 'us-east-1']], outcome: 'merge', owner: '@web-team', file: 'template.yaml', line: 9, pr: 88 },
-  { repo: 'edge-functions', findings: 2, fns: [['edge-viewer-request', 'dev', 'us-west-2'], ['edge-origin-response', 'prod', 'us-west-2']], outcome: 'merge', owner: '@web-team', file: 'cdk/edge-stack.ts', line: 30, pr: 311 },
-  { repo: 'statements', findings: 2, fns: [['render-template', 'prod', 'us-east-1'], ['statement-render', 'staging', 'us-east-1'], ['statement-mail', 'prod', 'us-west-2']], outcome: 'merge', hold: true, owner: '@payments-team', file: 'serverless.yml', line: 21, pr: 57 },
-  { repo: 'slack-events', findings: 1, fns: [['slack-events', 'dev', 'eu-west-1']], outcome: 'ready', owner: '@platform-team', file: 'template.yaml', line: 7, pr: 19 },
-  { repo: 'relay-in', findings: 1, fns: [['relay-in', 'dev', 'eu-west-1']], outcome: 'ready', owner: '@platform-team', file: 'serverless.yml', line: 14, pr: 203 },
+  { repo: 'bff-graphql', delta: 'engines · 1 dependency', size: [34, 29],  findings: 2, fns: [['bff-graphql', 'prod', 'us-east-1']], outcome: 'merge', owner: '@web-team', file: 'serverless.yml', line: 12, pr: 142 },
+  { repo: 'bff-session', delta: 'engines', size: [12, 10],  findings: 1, fns: [['bff-session', 'staging', 'us-east-1']], outcome: 'merge', owner: '@web-team', file: 'template.yaml', line: 9, pr: 88 },
+  { repo: 'edge-functions', delta: 'engines · 2 dependencies', size: [58, 41],  findings: 2, fns: [['edge-viewer-request', 'dev', 'us-west-2'], ['edge-origin-response', 'prod', 'us-west-2']], outcome: 'merge', owner: '@web-team', file: 'cdk/edge-stack.ts', line: 30, pr: 311 },
+  { repo: 'statements', delta: 'replaces a deprecated Buffer call', size: [47, 39],  findings: 2, fns: [['render-template', 'prod', 'us-east-1'], ['statement-render', 'staging', 'us-east-1'], ['statement-mail', 'prod', 'us-west-2']], outcome: 'merge', hold: true, owner: '@payments-team', file: 'serverless.yml', line: 21, pr: 57 },
+  { repo: 'slack-events', delta: 'engines', size: [9, 9],  findings: 1, fns: [['slack-events', 'dev', 'eu-west-1']], outcome: 'ready', owner: '@platform-team', file: 'template.yaml', line: 7, pr: 19 },
+  { repo: 'relay-in', delta: 'engines · 1 dependency', size: [21, 18],  findings: 1, fns: [['relay-in', 'dev', 'eu-west-1']], outcome: 'ready', owner: '@platform-team', file: 'serverless.yml', line: 14, pr: 203 },
 ];
 
 const PY_REPOS = [
-  { repo: 'billing-exports', findings: 2, fns: [['invoice-export', 'prod', 'us-east-1']], outcome: 'merge', hold: true, owner: '@billing-team', file: 'template.yaml', line: 16, pr: 64 },
-  { repo: 'ledger', findings: 2, fns: [['ledger-sync', 'staging', 'eu-west-1'], ['fx-rates', 'prod', 'eu-west-1']], outcome: 'ready', owner: '@ledger-team', file: 'serverless.yml', line: 6, pr: 118 },
+  { repo: 'billing-exports', delta: 'requirements · 2 dependencies', size: [26, 19],  findings: 2, fns: [['invoice-export', 'prod', 'us-east-1']], outcome: 'merge', hold: true, owner: '@billing-team', file: 'template.yaml', line: 16, pr: 64 },
+  { repo: 'ledger', delta: 'requirements · CI matrix', size: [31, 24],  findings: 2, fns: [['ledger-sync', 'staging', 'eu-west-1'], ['fx-rates', 'prod', 'eu-west-1']], outcome: 'ready', owner: '@ledger-team', file: 'serverless.yml', line: 6, pr: 118 },
 ];
 
 const JAVA_REPOS = [
-  { repo: 'payments', findings: 2, fns: [['payments-core', 'prod', 'us-east-1'], ['settlement-batch', 'prod', 'us-east-1']], outcome: 'ready', owner: '@payments-team', file: 'template.yaml', line: 14, pr: 402 },
-  { repo: 'kyc-service', findings: 1, fns: [['kyc-check', 'staging', 'us-east-2']], outcome: 'ready', owner: '@compliance-team', file: 'cdk/kyc-stack.ts', line: 23, pr: 77 },
-  { repo: 'audit', findings: 1, fns: [['audit-writer', 'dev', 'us-west-2']], outcome: 'ready', owner: '@security-team', file: 'main.tf', line: 41, pr: 35 },
+  { repo: 'payments', delta: 'pom.xml · 3 dependencies', size: [64, 52],  findings: 2, fns: [['payments-core', 'prod', 'us-east-1'], ['settlement-batch', 'prod', 'us-east-1']], outcome: 'ready', owner: '@payments-team', file: 'template.yaml', line: 14, pr: 402 },
+  { repo: 'kyc-service', delta: 'build.gradle', size: [18, 14],  findings: 1, fns: [['kyc-check', 'staging', 'us-east-2']], outcome: 'ready', owner: '@compliance-team', file: 'cdk/kyc-stack.ts', line: 23, pr: 77 },
+  { repo: 'audit', delta: 'pom.xml · 1 dependency', size: [22, 17],  findings: 1, fns: [['audit-writer', 'dev', 'us-west-2']], outcome: 'ready', owner: '@security-team', file: 'main.tf', line: 41, pr: 35 },
 ];
 
 const CACHE_REPOS = [
@@ -67,7 +67,40 @@ const OTHER_REPOS = [
 // Repos the AWS Transform GitHub app can't read (access denied) — produces the "partial" state.
 export const UNREADABLE = ['archived-v1-api', 'archived-mobile-legacy', 'archived-ops-scripts'];
 
+// What the optional estate scan finds beyond the AWS Health events (quick, read-only pass
+// over package manifests and runtime settings), and the counts the analysis cards lead with.
+export const ESTATE = {
+  noNotice: { label: 'Java 8 and Node.js 18', repos: 29, where: 'In containers, on EC2 and in build images' },
+  outdatedDeps: 212,
+  unpatchedRepos: 18,
+  eosRepos: 40,
+};
+
 export const ORG_REPOS = [...NODE_REPOS, ...PY_REPOS, ...JAVA_REPOS, ...CACHE_REPOS].map((r) => r.repo).concat(OTHER_REPOS).sort();
+
+// Visibility and primary language, as the provider lists them. The repositories behind
+// the AWS Health events are all private.
+const PUBLIC_REPOS = [
+  'design-system', 'dev-portal', 'docs-site', 'sdk-python', 'sdk-typescript', 'ci-templates', 'infra-modules', 'event-bus-schemas',
+  'data-contracts', 'notification-templates', 'qa-automation', 'ops-runbooks', 'observability-stack', 'web-storefront', 'search-api', 'recommendations',
+  'geo-service', 'open-banking-api', 'partner-api', 'mobile-app', 'feature-flags', 'kafka-connectors', 'terraform-live', 'statements-ui',
+];
+const FIXTURE_LANG = {
+  ...Object.fromEntries(NODE_REPOS.map((r) => [r.repo, /^(bff|edge)/.test(r.repo) ? 'TypeScript' : 'JavaScript'])),
+  ...Object.fromEntries(PY_REPOS.map((r) => [r.repo, 'Python'])),
+  ...Object.fromEntries(JAVA_REPOS.map((r) => [r.repo, 'Java'])),
+  'session-store': 'HCL', 'rate-limiter': 'Go', 'cache-gateway': 'TypeScript',
+};
+const LANGS = ['TypeScript', 'Java', 'Python', 'Go', 'JavaScript'];
+function repoLanguage(repo) {
+  if (FIXTURE_LANG[repo]) return FIXTURE_LANG[repo];
+  if (/python/.test(repo)) return 'Python';
+  if (/^(terraform|infra|vault)/.test(repo)) return 'HCL';
+  if (/(typescript|-ui$|portal|site|design|web-|mobile-app|storefront)/.test(repo)) return 'TypeScript';
+  if (/(-svc$|engine|kafka|loan|card|ledger|settlement)/.test(repo)) return 'Java';
+  return LANGS[Math.abs(hash(repo)) % LANGS.length];
+}
+export const repoMeta = (repo) => ({ repo, visibility: PUBLIC_REPOS.includes(repo) ? 'Public' : 'Private', language: repoLanguage(repo) });
 
 // ---- Events ----------------------------------------------------------------
 
@@ -159,22 +192,15 @@ export const repoFixture = (eventId, repo) => eventById(eventId)?.repos.find((r)
 
 // ---- Findings & groups -----------------------------------------------------
 // Findings are added to the CM findings list when the PLE analysis finishes.
-const EXTRA_EVIDENCE = {
-  python: [['requirements.txt', 3, 'python_requires=">=3.10,<3.11"'], ['.github/workflows/ci.yml', 19, 'python-version: "3.10"']],
-  node: [['package.json', 5, '"engines": { "node": "16.x" }'], ['.nvmrc', 1, '16']],
-  java: [['pom.xml', 18, '<maven.compiler.release>11</maven.compiler.release>'], ['.github/workflows/ci.yml', 22, "java-version: '11'"]],
-};
-
+// One finding per affected function, at the IaC line that sets its runtime.
 export function buildFindings(event, startSeq) {
   let seq = startSeq;
   const out = [];
-  const extras = { Python: EXTRA_EVIDENCE.python, 'Node.js': EXTRA_EVIDENCE.node, Java: EXTRA_EVIDENCE.java }[event.technology] ?? [];
   event.repos.forEach((r) => {
-    for (let i = 0; i < r.findings; i++) {
-      const [file, line, evidence] = i === 0 ? [r.file, r.line, event.evidence] : extras[(i - 1) % extras.length] ?? [r.file, r.line + 12, event.evidence];
+    r.fns.forEach(([fn]) => {
       out.push({
         id: `F-${++seq}`,
-        title: `${event.title.replace(/^AWS |^Amazon /, '')}`,
+        title: `${fn} on ${event.from}`,
         severity: 'High',
         status: 'Open',
         transformation: event.td,
@@ -185,13 +211,12 @@ export function buildFindings(event, startSeq) {
         analysisId: 'A-PLE',
         notes: '',
         pleId: event.id,
-        file,
-        line,
-        evidence,
-        // The IaC finding covers the functions; supporting findings cover none.
-        functions: i === 0 ? r.fns.map(([name]) => name) : [],
+        file: r.file,
+        line: r.line,
+        evidence: event.evidence,
+        functions: [fn],
       });
-    }
+    });
   });
   return { findings: out, seq };
 }

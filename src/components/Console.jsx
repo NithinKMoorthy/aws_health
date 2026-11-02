@@ -136,6 +136,81 @@ export function ConsoleLanding() {
   );
 }
 
+const INCLUDED = [
+  ['IAM-only user access', 'Use existing AWS credentials to access Transform - simpler to set up and suitable for teams that don\'t require SSO capabilities.'],
+  ['AWS managed encryption key', 'Your data is encrypted by default with a key that AWS owns and manages for you.'],
+  ['AWS Transform managed storage', 'Let AWS Transform manage the data for you. Create connectors to import data when needed.'],
+];
+
+/** Shown in place of any /app page until the web application is enabled, then that page loads. */
+export function EnableWebApp({ query }) {
+  const { dispatch, notify } = useStore();
+  const [mode, setMode] = useState('quick');
+  const [busy, setBusy] = useState(false);
+  const fromHealth = query.source === 'health';
+  const enable = () => {
+    if (mode === 'manual') {
+      notify('Manual setup would open identity, encryption and storage settings (mock).', 'info');
+      return;
+    }
+    setBusy(true);
+    setTimeout(() => {
+      dispatch({ type: 'PLE_ENABLE_WEBAPP' });
+      window.scrollTo(0, 0);
+    }, 1200);
+  };
+  return (
+    <div className="console">
+      <ConsoleTopBar />
+      <div className="console-subbar">
+        <nav className="breadcrumbs">
+          <Link onClick={() => navigate('/console')}>AWS Transform</Link>
+          <span className="sep">/</span>
+          <span className="current">Enable web application</span>
+        </nav>
+      </div>
+      <main className="console-main enable-page">
+        <RegionNotice />
+        <h1 className="page-title">Enable web application</h1>
+        <div className="enable-modes">
+          {[
+            ['quick', 'Quick start', 'Enable the web application in one click with default settings.'],
+            ['manual', 'Manual setup', 'Configure identity, encryption, and storage to match your organization’s requirements.'],
+          ].map(([id, label, desc]) => (
+            <label key={id} className={`enable-mode ${mode === id ? 'on' : ''}`}>
+              <input type="radio" name="enable-mode" checked={mode === id} onChange={() => setMode(id)} />
+              <span>
+                <span className="enable-mode-label">{label}</span>
+                <span className="enable-mode-desc">{desc}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        {mode === 'quick' && (
+          <section className="enable-included">
+            <h2>What's included</h2>
+            {INCLUDED.map(([t, d]) => (
+              <div key={t} className="enable-item">
+                <strong><Icon.check /> {t}</strong>
+                <p>{d}</p>
+              </div>
+            ))}
+            <p className="enable-note">
+              You can change storage settings later. <Icon.warn className="warn-icon" /> Note: user access can't be changed after setup, and changing the encryption key may make
+              existing data inaccessible.
+            </p>
+          </section>
+        )}
+        <div className="enable-actions">
+          <Button variant="link" disabled={busy} onClick={() => navigate(fromHealth ? '/console/health' : '/console')}>Cancel</Button>
+          <Button variant="dark" data-tour="enable" disabled={busy} onClick={enable}>{busy ? <><Icon.spinner /> Enabling</> : mode === 'manual' ? 'Next' : 'Enable'}</Button>
+        </div>
+      </main>
+      <ConsoleFooter />
+    </div>
+  );
+}
+
 export function ServiceManagement({ section = 'service' }) {
   const { notify } = useStore();
   const [tab, setTab] = useState('users');

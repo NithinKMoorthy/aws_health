@@ -1,6 +1,6 @@
 import React from 'react';
 import { fmtDate } from '../data';
-import { daysLeft, GROUP_TYPES, repoFixture } from './data';
+import { daysLeft, GROUP_TYPES, MOCK_TODAY, repoFixture } from './data';
 import { Icon, Link } from '../components/ui';
 import { navigate } from '../store';
 
@@ -295,4 +295,18 @@ export function Drawer({ title, onClose, children }) {
       </aside>
     </div>
   );
+}
+
+const DAY_INDEX = { Sundays: 0, Mondays: 1, Tuesdays: 2, Wednesdays: 3, Thursdays: 4, Fridays: 5, Saturdays: 6 };
+
+/** Next scheduled run after `from` (ISO date): tomorrow, the next run day, or four weeks after it; null for once. */
+export function nextRunIso(cadence, day, from = MOCK_TODAY) {
+  if (cadence === 'once') return null;
+  const d = new Date(`${from}T12:00`);
+  if (cadence === 'daily') d.setDate(d.getDate() + 1);
+  else {
+    d.setDate(d.getDate() + (((DAY_INDEX[day] ?? 1) - d.getDay() + 7) % 7 || 7));
+    if (cadence === 'monthly') d.setDate(d.getDate() + 28);
+  }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }

@@ -29,7 +29,6 @@ const COPY = {
 };
 export const healthName = (e) => COPY[e.id] ?? e.title;
 const summary = (e) => (fixable(e) ? `Upgrade to ${targetName(e)} before the deadline` : e.summary ?? '');
-const count = (e, n) => `${n} ${unit(e, n)}`;
 const fmtStart = (e) => `${fmtDate(e.changeDate)}, ${e.time ?? '12:00 AM PST'}`;
 
 // AWS Health lists one row per event per Region.
@@ -109,7 +108,7 @@ function TransformSummary({ events }) {
   const lambdaOnly = fix.every((e) => e.service === 'Lambda');
   const openCm = () => window.open(`${window.location.pathname}#/app/cm/dashboard`, '_blank', 'noopener');
   return (
-    <section className="atx-summary">
+    <section className="atx-summary" data-tour="health-summary">
       <div className="atx-summary-head">
         <span className="atx-summary-icon"><Icon.refresh /></span>
         <div className="grow">
@@ -122,28 +121,6 @@ function TransformSummary({ events }) {
         <Link onClick={openCm}><strong>{isCmCustomer(state) ? 'Open continuous modernization' : 'Keep runtimes current automatically'}</strong></Link>
         <button type="button" className="btn btn-atx" onClick={() => openEvents(fix, TENANT.account)}>Upgrade {total} {what}</button>
       </div>
-      <div className="atx-summary-cards">
-        {fix.map((e) => {
-          const n = e.resources.length;
-          const k = new Set(e.resources.map((r) => (e.scopeBy === 'regions' ? r.region : r.account))).size;
-          const scope = e.scopeBy === 'regions' ? (k === 1 ? 'Region' : 'Regions') : k === 1 ? 'account' : 'accounts';
-          return (
-            <div key={e.id} className={`atx-mini ${daysLeft(e.changeDate) <= 120 ? 'urgent' : ''}`}>
-              <div className="atx-mini-head">
-                <strong>{fromName(e)}</strong>
-                {daysLeft(e.changeDate) <= 120 ? <span className="due due-urgent">{daysLeft(e.changeDate)} days left</span> : <Due date={e.changeDate} />}
-              </div>
-              <div className="atx-mini-path">
-                <span className="ver-old">{fromName(e)}</span> <span className="arrow">→</span> <span className="ver-new">{targetName(e)}</span>
-              </div>
-              <div className="muted small">
-                {n} {unit(e, n)} in {k} {scope} · {fmtDate(e.changeDate)}
-              </div>
-              <Link onClick={() => openDeepLink(e, TENANT.account)}><strong>Upgrade {n} {unit(e, n)}</strong></Link>
-            </div>
-          );
-        })}
-      </div>
     </section>
   );
 }
@@ -152,7 +129,6 @@ function ScheduledChanges() {
   const { state, notify } = useStore();
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
-  const [picked, setPicked] = useState([]);
   const all = [...state.ple.events].sort((a, b) => a.changeDate.localeCompare(b.changeDate));
   const rowsAll = healthRows(all);
   const nFix = rowsAll.filter((r) => fixable(r.event)).length;
@@ -160,9 +136,7 @@ function ScheduledChanges() {
   const rows = rowsAll
     .filter((r) => filter === 'all' || (filter === 'fix') === fixable(r.event))
     .filter((r) => !q || `${healthName(r.event)} ${summary(r.event)} ${r.event.service} ${r.region}`.toLowerCase().includes(q));
-  const open = (e) => openDeepLink(e, TENANT.account);
-  const toggle = (key) => setPicked((p) => (p.includes(key) ? p.filter((x) => x !== key) : [...p, key]));
-  const upgradeSelected = () => openEvents(all.filter((e) => picked.some((k) => k.startsWith(`${e.id}:`))), TENANT.account);
+  const open = (e) => navigate(`/console/health/${e.id}`);
   return (
     <>
       <nav className="breadcrumbs health-crumbs">
@@ -194,18 +168,16 @@ function ScheduledChanges() {
           </div>
           <div className="grow" />
           <SearchInput value={search} onChange={setSearch} placeholder="Find events" width={240} />
-          <button type="button" className="btn btn-atx" disabled={!picked.length} onClick={upgradeSelected}>Upgrade selected with AWS Transform</button>
         </div>
         <Table
           rowKey={(r) => r.key}
           columns={[
-            { id: 'sel', header: '', width: 44, cell: (r) => (fixable(r.event) ? <input type="checkbox" checked={picked.includes(r.key)} onChange={() => toggle(r.key)} aria-label={`Select ${healthName(r.event)} in ${r.region}`} /> : null) },
             {
               id: 'event',
               header: 'Event',
               cell: (r) => (
                 <div className="event-cell">
-                  {fixable(r.event) ? <Link onClick={() => open(r.event)}><strong>{healthName(r.event)}</strong></Link> : <Link onClick={() => navigate(`/console/health/${r.event.id}`)}><strong>{healthName(r.event)}</strong></Link>}
+                  <Link onClick={() => open(r.event)}><strong>{healthName(r.event)}</strong></Link>
                   <div className="muted small">{summary(r.event)}</div>
                 </div>
               ),
@@ -213,23 +185,6 @@ function ScheduledChanges() {
             { id: 'due', header: 'Due', cell: (r) => <Due date={r.event.changeDate} /> },
             { id: 'region', header: 'Region', cell: (r) => r.region },
             { id: 'start', header: 'Start time', cell: (r) => fmtStart(r.event) },
-            { id: 'res', header: 'Affected', cell: (r) => <Link onClick={() => (fixable(r.event) ? open(r.event) : navigate(`/console/health/${r.event.id}`, { tab: 'resources' }))}>{count(r.event, r.resources.length)}</Link> },
-            {
-              id: 'fix',
-              header: 'Resolution',
-              cell: (r) =>
-                fixable(r.event) ? (
-                  <div className="resolution">
-                    <a className="health-fix" onClick={() => open(r.event)}>Upgrade with AWS Transform</a>
-                    <div className="muted small">Opens a pull request for review</div>
-                  </div>
-                ) : (
-                  <div className="resolution">
-                    <span>Manual action</span>
-                    <div className="muted small">{r.event.manualAction}</div>
-                  </div>
-                ),
-            },
           ]}
           rows={rows}
           empty="No scheduled changes match the filter."

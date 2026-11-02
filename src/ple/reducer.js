@@ -21,9 +21,12 @@ function blankPle() {
   return {
     events: initialEvents,
     onboarded: false,
+    // New customers enable the AWS Transform web application before anything under /app.
+    webAppEnabled: false,
     entryEventId: null,
     entryEventIds: [],
     schedule: null,
+    draft: null,
     setup: { provider: null, repos: [], scope: null, skipped: false },
     eventBridge: false,
     analysis: null,
@@ -70,7 +73,7 @@ export function initialPleState(base) {
     findings: [...findings, ...base.findings],
     sources: [...base.sources, pleSource(repos, 'GitHub')],
     analyses: [healthAnalysisRow(Date.now(), repos, findings.length), ...base.analyses],
-    ple: { ...ple, onboarded: true, setup: { provider: 'GitHub', repos, scope: 'org', skipped: false }, groups: [...ple.groups, ...groups] },
+    ple: { ...ple, onboarded: true, webAppEnabled: true, setup: { provider: 'GitHub', repos, scope: 'org', skipped: false }, groups: [...ple.groups, ...groups] },
   };
 }
 
@@ -121,8 +124,15 @@ function setFindingStatus(findings, ids, status, extra = {}) {
 export function pleReducer(state, action) {
   const now = action.now ?? Date.now();
   switch (action.type) {
+    case 'PLE_ENABLE_WEBAPP':
+      return setPle(state, { webAppEnabled: true });
+
     case 'PLE_SET_ENTRY':
       return setPle(state, { entryEventId: action.eventId, entryEventIds: action.eventIds ?? [action.eventId] });
+
+    case 'PLE_SET_DRAFT':
+      // Analyses picked in setup steps 3–4, before continuous analysis begins.
+      return setPle(state, { draft: { ...state.ple.draft, ...action.patch } });
 
     case 'PLE_SET_SCHEDULE':
       // Continuous analysis chosen at setup: [{ type, cadence }], plus the shared day and time.
@@ -139,7 +149,7 @@ export function pleReducer(state, action) {
     case 'PLE_HEALTH_ACCESS':
       return setPle(state, {
         setup: {
-          ...state.ple.setup, scope: action.scope, skipped: action.scope === 'skipped', comprehensive: action.comprehensive,
+          ...state.ple.setup, scope: action.scope, skipped: action.scope === 'skipped', comprehensive: action.comprehensive, estate: action.estate ?? true,
           pleCadence: action.pleCadence ?? 'weekly', tdType: action.tdType ?? 'td-comprehensive', tdCadence: action.tdCadence ?? 'weekly',
         },
         eventBridge: action.eventBridge ?? state.ple.eventBridge,

@@ -307,8 +307,9 @@ function EventCampaign({ items }) {
       <Breadcrumbs
         items={[
           { label: 'Continuous modernization', onClick: () => navigate('/app/cm/dashboard') },
-          multi ? { label: eventsTitle(events), onClick: () => navigate('/app/cm/findings', { tab: 'ple' }) } : { label: noticeTitle(first), onClick: () => navigate(`/app/cm/findings/G-${first.id}`) },
-          { label: 'Campaign' },
+          ...(multi
+            ? [{ label: eventsTitle(events), onClick: () => navigate('/app/cm/findings', { tab: 'ple' }) }, { label: 'Campaign' }]
+            : [{ label: 'Campaigns', onClick: () => navigate('/app/cm/campaigns') }, { label: items[0].c.name }]),
         ]}
       />
       {multi ? <MultiEventHeader events={events} compact /> : <EventHeader event={first} />}

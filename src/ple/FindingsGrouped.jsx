@@ -3,7 +3,8 @@ import { fmtDate, typeLabel } from '../data';
 import { navigate, useStore } from '../store';
 import { Alert, Button, Icon, Link, Pagination, SearchInput, Select, Severity, Status } from '../components/ui';
 import { NotesModal } from '../cm/Findings';
-import { DemoPanel, groupView, PleTag } from './common';
+import { byDeadline, DemoPanel, eventsTitle, groupView, noticeTitle, PleTag, unit } from './common';
+import { ACCOUNT_ENV } from './data';
 import { DismissModal, groupPath, groupTitle, MoveModal, NewPleBanner, remediatePath, skillPath } from './Groups';
 
 // Findings: the original CM findings table, with groups as expandable rows.
@@ -50,13 +51,18 @@ export function FindingsGrouped({ query }) {
   const [grouped, setGrouped] = useState(true);
   const [fixableOnly, setFixableOnly] = useState(query.fixable === '1');
   const [selected, setSelected] = useState(() => (query.sel ? query.sel.split(',') : []));
-  const [expanded, setExpanded] = useState(() => new Set());
+  const [expanded, setExpanded] = useState(() => new Set(query.highlight ? [query.highlight] : []));
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState({ by: 'severity', desc: true });
   const [modal, setModal] = useState(null);
+  // Arriving from AWS Health: only the event(s) that brought you here, until you ask for everything.
+  const entryIds = state.ple.entryEventIds?.length ? state.ple.entryEventIds : [state.ple.entryEventId].filter(Boolean);
+  const entryEvents = byDeadline(state.ple.events.filter((e) => entryIds.includes(e.id)));
+  const [focus, setFocus] = useState(!!query.highlight && entryEvents.length > 0);
 
   const q = search.trim().toLowerCase();
   const keep = (f) =>
+    (!focus || entryIds.includes(f.pleId)) &&
     matchStatus(f, status) &&
     (!repo || f.repo === repo) &&
     (!fixableOnly || f.transformation || f.pleId) &&
@@ -106,7 +112,7 @@ export function FindingsGrouped({ query }) {
     const pin = out.findIndex((r) => r.key === query.highlight);
     if (pin > 0) out.unshift(...out.splice(pin, 1));
     return out;
-  }, [state, grouped, search, status, repo, source, fixableOnly, sort, query.highlight]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state, grouped, search, status, repo, source, fixableOnly, sort, focus, query.highlight]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pages = Math.max(1, Math.ceil(rows.length / PAGE));
   const cur = Math.min(page, pages);
@@ -141,16 +147,27 @@ export function FindingsGrouped({ query }) {
 
   return (
     <div>
-      <NewPleBanner />
+      {!focus && <NewPleBanner />}
       <NextStepBanner groupId={query.highlight} />
-      {state.ple.onboarded && !state.ple.eventBridge && (
+      {focus && (
+        <div className="focus-bar">
+          <span className="aws-ple-tag">AWS Health PLE</span>
+          <span>
+            Showing only <strong>{entryEvents.length > 1 ? eventsTitle(entryEvents) : noticeTitle(entryEvents[0])}</strong>, the {entryEvents.length > 1 ? 'events' : 'event'} that
+            brought you here.
+          </span>
+          <span className="grow" />
+          <Link onClick={() => { setFocus(false); reset(); }}><strong>Show all findings</strong></Link>
+        </div>
+      )}
+      {!focus && state.ple.onboarded && !state.ple.eventBridge && (
         <Alert type="info" action={<Button onClick={() => { dispatch({ type: 'PLE_ENABLE_EVENTBRIDGE' }); notify('EventBridge rule atx-health-ple-delivery created.'); }}>Turn on</Button>}>
           <PleTag /> Get new PLEs automatically. Turn on EventBridge delivery.
         </Alert>
       )}
       <div className="section-head">
         <h2>
-          Findings <span className="muted">({rows.length > PAGE ? `${PAGE}+` : rows.length})</span>
+          {focus ? 'Affected code' : 'Findings'} <span className="muted">({rows.length > PAGE ? `${PAGE}+` : rows.length})</span>
           {grouped && groupCount > 0 && <span className="muted small heading-note"> · {groupCount} {groupCount === 1 ? 'group' : 'groups'}</span>}
         </h2>
         <div className="actions">
@@ -269,7 +286,8 @@ function NextStepBanner({ groupId }) {
         </div>
       }
     >
-      AWS Transform found {v.found.length} of {v.resources.length} affected resources in {v.repos.length} {v.repos.length === 1 ? 'repository' : 'repositories'}.
+      AWS Transform found the code behind {v.found.length === v.resources.length ? `all ${v.resources.length}` : `${v.found.length} of ${v.resources.length}`} affected{' '}
+      {unit(v.event, v.resources.length)} in {v.repos.length} {v.repos.length === 1 ? 'repository' : 'repositories'}.
       Review the code, then create a campaign: AWS Transform opens one pull request per repository for your teams to review and merge. Nothing changes until you approve the plan.
     </Alert>
   );
@@ -297,7 +315,7 @@ function GroupRows({ r, open, toggle, selected, toggleSel, onNotes }) {
               {r.entry && <span className="came-tag">You came here for this</span>}
               {g.isNew && <span className="badge badge-green">New</span>}
               <div className="muted small">
-                {e && <span className="aws-ple-tag">AWS Health PLE</span>} Group {g.type} · {children.length} {children.length === 1 ? 'finding' : 'findings'}
+                {e && <span className="aws-ple-tag">AWS Health PLE</span>} Group{e ? '' : ` ${g.type}`} · {children.length} {children.length === 1 ? 'finding' : 'findings'}
                 {e && <> · due {fmtDate(e.changeDate)}</>}
                 {v.safety.tone === 'warn' && e && <span className="tag tag-amber"><Icon.warn width={11} height={11} /> {v.safety.label.replace(/^\d+ warning: /, '')}</span>}
               </div>
@@ -327,18 +345,47 @@ function GroupRows({ r, open, toggle, selected, toggleSel, onNotes }) {
   );
 }
 
+const shortAcct = (a) => `${ACCOUNT_ENV[a] ? `${ACCOUNT_ENV[a]} · ` : ''}${a.slice(0, 4)}…${a.slice(-4)}`;
+
 function FindingRow({ f, child, selected, toggleSel, onNotes }) {
+  const { state } = useStore();
   const sel = selected.includes(f.id);
+  // AWS Health findings are one per affected resource: name, where it's defined, which account.
+  const res = child && f.pleId && f.functions?.length === 1 ? state.ple.events.find((e) => e.id === f.pleId)?.resources.find((r) => r.name === f.functions[0]) : null;
+  if (res) {
+    const org = state.sources.find((x) => x.id === 'src-ple')?.org ?? 'acme-fintech';
+    return (
+      <tr className={`child-row ple-child ${sel ? 'selected' : ''}`}>
+        <td className="cb" />
+        <td>
+          <div className="child-cell">
+            <input type="checkbox" checked={sel} onChange={() => toggleSel([f.id])} aria-label={`Select ${f.title}`} />
+            <Link onClick={() => navigate(`/app/cm/findings/${f.id}`)}><strong>{res.name}</strong></Link> <span className="muted">on {f.title.replace(/^.* on /, '')}</span>
+          </div>
+        </td>
+        <td colSpan={4} className="muted">{org}/{f.repo} · {f.file}</td>
+        <td colSpan={3} className="muted">{shortAcct(res.account)}</td>
+      </tr>
+    );
+  }
   return (
     <tr className={`${child ? 'child-row' : ''} ${sel ? 'selected' : ''}`}>
       <td className="cb">
-        <input type="checkbox" checked={sel} onChange={() => toggleSel([f.id])} aria-label={`Select ${f.id}`} />
+        {!child && <input type="checkbox" checked={sel} onChange={() => toggleSel([f.id])} aria-label={`Select ${f.id}`} />}
       </td>
       <td>
-        <div className={child ? 'child-cell' : ''}>
-          <Link onClick={() => navigate(`/app/cm/findings/${f.id}`)}>{child && f.file ? <span className="mono small">{f.file}:{f.line}</span> : <strong>{f.title}</strong>}</Link>
-          {child && f.evidence && <div className="muted small"><code>{f.evidence}</code></div>}
-        </div>
+        {child ? (
+          // Children carry their checkbox inside the indent, so they read as part of the group.
+          <div className="child-cell">
+            <input type="checkbox" checked={sel} onChange={() => toggleSel([f.id])} aria-label={`Select ${f.id}`} />
+            <div>
+              <Link onClick={() => navigate(`/app/cm/findings/${f.id}`)}>{f.file ? <span className="mono small">{f.file}:{f.line}</span> : <strong>{f.title}</strong>}</Link>
+              {f.evidence && <div className="muted small"><code>{f.evidence}</code></div>}
+            </div>
+          </div>
+        ) : (
+          <Link onClick={() => navigate(`/app/cm/findings/${f.id}`)}><strong>{f.title}</strong></Link>
+        )}
       </td>
       <td><Severity value={f.severity} /></td>
       <td><Status value={f.status} /></td>

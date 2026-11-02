@@ -13,6 +13,7 @@ import { FindingsGrouped } from '../ple/FindingsGrouped';
 import { RemediationPlan } from '../ple/RemediationPlan';
 import { SkillReview } from '../ple/Skill';
 import { CampaignDetail, Campaigns } from '../ple/Campaign';
+import { PleAnalysisPage } from '../ple/Analysis';
 
 const TABS = ['dashboard', 'findings', 'campaigns', 'remediations', 'analyses', 'sources', 'settings'];
 
@@ -28,6 +29,7 @@ export function CMPage({ parts, query }) {
     if ((tab === 'findings' || tab === 'problems') && isGroup && leaf === 'skill') return <SkillReview key={sub} id={sub} query={query} />;
     if ((tab === 'findings' || tab === 'problems') && isGroup) return <GroupDetail key={sub} id={sub} query={query} />;
     if (tab === 'analyses' && sub === 'new') return <NewAnalysis query={query} />;
+    if (tab === 'analyses' && sub === 'A-PLE') return <PleAnalysisPage />;
     if (tab === 'analyses') return <AnalysisDetail id={sub} />;
     if (tab === 'findings') return <FindingDetail id={sub} />;
     if (tab === 'remediations') return <RemediationDetail id={sub} />;
