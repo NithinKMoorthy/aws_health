@@ -95,7 +95,7 @@ export function CampaignDetail({ id, query }) {
       <Breadcrumbs
         items={[
           { label: 'Continuous modernization', onClick: () => navigate('/app/cm/dashboard') },
-          { label: 'Campaigns', onClick: () => navigate('/app/cm/campaigns') },
+          { label: 'Remediations', onClick: () => navigate('/app/cm/remediations') },
           { label: c.name },
         ]}
       />
@@ -309,7 +309,7 @@ function EventCampaign({ items }) {
           { label: 'Continuous modernization', onClick: () => navigate('/app/cm/dashboard') },
           ...(multi
             ? [{ label: eventsTitle(events), onClick: () => navigate('/app/cm/findings', { tab: 'ple' }) }, { label: 'Campaign' }]
-            : [{ label: 'Campaigns', onClick: () => navigate('/app/cm/campaigns') }, { label: items[0].c.name }]),
+            : [{ label: 'Remediations', onClick: () => navigate('/app/cm/remediations') }, { label: items[0].c.name }]),
         ]}
       />
       {multi ? <MultiEventHeader events={events} compact /> : <EventHeader event={first} />}

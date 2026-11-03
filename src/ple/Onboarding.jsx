@@ -6,7 +6,7 @@ import {
 } from '../components/ui';
 import { daysLeft, MOCK_TODAY, ORG, ORG_REPOS, repoMeta, UNREADABLE } from './data';
 import {
-  byDeadline, deepLink, deepLinkMulti, DemoPanel, fixable, fromName, nextRunIso, targetName, unit, unitFor,
+  byDeadline, countLong, countShort, deepLink, deepLinkMulti, DemoPanel, endingPhrase, fixable, fromName, isMixed, nextRunIso, SERVICE_LABEL, serviceList, targetName, unit, unitFor,
 } from './common';
 
 // Screens 2–5: deep-link Get started page (one event or several), then the three-step setup.
@@ -116,6 +116,7 @@ function GetStarted({ events }) {
   const coming = byDeadline([...events, ...state.ple.events.filter((e) => !inRequest.has(e.id) && fixable(e) && e.resources.some((r) => accountSet.has(r.account)))]);
   const total = coming.reduce((k, e) => k + e.resources.length, 0);
   const lambdaOnly = events.every((e) => e.service === 'Lambda');
+  const mixed = isMixed(events);
   const connected = state.ple.setup.repos.length > 0;
   const cur = connected ? 1 : 0;
   const steps = [
@@ -136,8 +137,9 @@ function GetStarted({ events }) {
           <div className="gs-eyebrow">Get started</div>
           <h1>Keep your software estate continuously modern</h1>
           <p className="gs-desc">
-            {n} of your {lambdaOnly ? `Lambda ${u} run on runtimes` : `${u} run on versions`} reaching end of support. AWS Transform upgrades them in code, nearest
-            deadline first, then keeps watching for what’s next.
+            {mixed ? `${countShort(events)} across ${serviceList(events)} reach` : `${n} of your ${lambdaOnly ? `Lambda ${u} run on runtimes` : `${u} run on versions`}`}{' '}
+            {mixed ? `end of support: ${countLong(events)}.` : 'reaching end of support.'} AWS Transform upgrades them in code, nearest deadline first, then keeps
+            watching for what’s next.
           </p>
           <ol className="gs-steps">
             {steps.map(([t, d], i) => (
@@ -152,7 +154,7 @@ function GetStarted({ events }) {
           </ol>
           <div className="gs-actions">
             <Button variant="primary" className="gs-cta" onClick={() => navigate(connected ? '/app/ple/analyze' : '/app/ple/connect')}>
-              {connected ? 'Continue setup' : `Upgrade ${n} ${u}`}
+              {connected ? 'Continue setup' : `Upgrade ${countShort(events)}`}
             </Button>
             <Link external><strong>Learn more</strong></Link>
           </div>
@@ -162,14 +164,14 @@ function GetStarted({ events }) {
         </div>
         <aside className="gs-side">
           <div className="gs-side-head">
-            <span className="gs-eyebrow muted-eyebrow">From AWS Health · {total} {unitFor(coming, total)}</span>
+            <span className="gs-eyebrow muted-eyebrow">From AWS Health · {isMixed(coming) ? `${coming.length} notices` : `${total} ${unitFor(coming, total)}`}</span>
             <Link external onClick={() => navigate('/console/health')}><strong>View all</strong></Link>
           </div>
           <div className="gs-events">
             {coming.map((e, i) => (
               <EventCard key={e.id} event={e} first={i === 0} />
             ))}
-            {UPCOMING.map((e) => (
+            {UPCOMING.filter((x) => !coming.some((e) => e.service === x.serviceKey)).map((e) => (
               <EventCard key={e.id} event={e} upcoming />
             ))}
             <span className="gs-more-dots" aria-hidden="true" />
@@ -192,7 +194,7 @@ function GetStarted({ events }) {
 
 // Shown faded under the AWS Health events: the kind of change AWS Transform catches next.
 const UPCOMING = [
-  { id: 'eks-130', from: '1.30', target: '1.32', service: 'Amazon EKS', unitName: 'cluster', when: 'When announced', names: ['payments-prod', 'data-platform', 'risk-batch', 'ml-serving'], shown: 2 },
+  { id: 'eks-130', from: '1.30', target: '1.32', service: 'Amazon EKS', serviceKey: 'EKS', unitName: 'cluster', when: 'When announced', names: ['payments-prod', 'data-platform', 'risk-batch', 'ml-serving'], shown: 2 },
 ];
 
 function EventCard({ event: e, first, upcoming }) {
@@ -211,7 +213,7 @@ function EventCard({ event: e, first, upcoming }) {
         <span className="grow" />
         <span className={`gs-badge ${upcoming ? 'gray' : first ? 'orange' : 'blue'}`}>{badge}</span>
       </div>
-      <div className="muted">{e.service} · {upcoming ? e.when : fmtDate(e.changeDate)}</div>
+      <div className="muted">{upcoming ? e.service : SERVICE_LABEL[e.service] ?? e.service} · {upcoming ? e.when : fmtDate(e.changeDate)}</div>
       <div className="gs-chips">
         {shown.map((name) => (
           <span key={name} className="gs-chip">{name}</span>
@@ -381,6 +383,8 @@ function ConnectStep({ events, back, mode, toggle }) {
   const [name, setName] = useState(src?.name ?? '');
   const [org, setOrg] = useState(src?.org ?? '');
   const [token, setToken] = useState('');
+  // GitHub can connect through the AWS Connector app (OAuth) instead of a token.
+  const [auth, setAuth] = useState('app');
   const prior = state.ple.setup.repos;
   const [verify, setVerify] = useState(prior.length ? 'ok' : null); // null | missing | checking | ok | failed | approval
   const [repos, setRepos] = useState(prior.length ? ORG_REPOS : []); // what the token can see
@@ -427,14 +431,21 @@ function ConnectStep({ events, back, mode, toggle }) {
   const matches = visible.filter((r) => r.includes(q.trim().toLowerCase())).map(repoMeta);
   const pages = Math.max(1, Math.ceil(matches.length / PAGE));
   const shown = matches.slice((Math.min(page, pages) - 1) * PAGE, Math.min(page, pages) * PAGE);
+  // One page: once step 1 is done, bring step 2 into view (after it renders unlocked).
+  const toStep2 = () => {
+    if (mode === 'two') return;
+    setTimeout(() => document.querySelector('.stepper [data-tour="analyses"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+  };
+  const useApp = provider === 'GitHub' && auth === 'app';
   const runVerify = () => {
-    if (!token.trim()) return setVerify('missing');
+    if (!useApp && !token.trim()) return setVerify('missing');
     setVerify('checking');
     setTimeout(() => {
       const found = sim === 'ok' ? ORG_REPOS : sim === 'approval' ? ORG_REPOS.filter((r) => !NEEDS_APPROVAL.includes(r)) : [];
       setVerify(sim);
       setRepos(found);
       setChosen(found);
+      if (found.length) toStep2();
     }, 900);
   };
   const plan = useAnalysesPlan(events);
@@ -487,7 +498,8 @@ function ConnectStep({ events, back, mode, toggle }) {
         <p>
           {first && (
             <>
-              AWS Health flagged {n} {u} on {list(events.map(fromName))}, which {events.length === 1 ? `reaches end of support on ${fmtDate(first.changeDate)}` : `reach end of support starting ${fmtDate(first.changeDate)}`}.
+              AWS Health flagged {countLong(events)} on {isMixed(events) ? endingPhrase(events) : list(events.map(fromName))}, which{' '}
+              {events.length === 1 ? `reaches end of support on ${fmtDate(first.changeDate)}` : `reach end of support starting ${fmtDate(first.changeDate)}`}.
               <br />
             </>
           )}
@@ -503,9 +515,9 @@ function ConnectStep({ events, back, mode, toggle }) {
         <div className="group-head-row">
           <div>
             <h2>{one ? 'Connect your repositories' : 'Source'}</h2>
-            <p className="muted card-desc">Where your repositories live. Your token is stored encrypted.</p>
+            <p className="muted card-desc">Where your repositories live.{useApp ? '' : ' Your token is stored encrypted.'}</p>
           </div>
-          {one && verified && <Link onClick={() => setSrcOpen((x) => !x)}><strong>{srcShown ? 'Done' : 'Change'}</strong></Link>}
+          {one && verified && <Link onClick={() => { if (srcShown) toStep2(); setSrcOpen((x) => !x); }}><strong>{srcShown ? 'Done' : 'Change'}</strong></Link>}
         </div>
         {one && !srcShown && (
           <p className="src-summary">
@@ -523,34 +535,64 @@ function ConnectStep({ events, back, mode, toggle }) {
               ))}
             </div>
           </FormField>
+          {provider === 'GitHub' && (
+            <FormField label="How to connect">
+              <Radio
+                name="gh-auth"
+                value={auth}
+                onChange={(a) => { setAuth(a); reset(); }}
+                options={[
+                  { value: 'app', label: <>Sign in with GitHub <span className="rec-flag">Recommended</span></>, description: 'Approve the AWS Connector app for your organization. No token to create or rotate.' },
+                  { value: 'token', label: 'Personal access token', description: 'For GitHub Enterprise Server, or if your organization doesn’t allow app installs.' },
+                ]}
+              />
+            </FormField>
+          )}
           <FormField label="Source name" description="How this connection appears in AWS Transform." error={err('name')}>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`e.g. acme-${provider.toLowerCase()}`} invalid={!!err('name')} />
           </FormField>
-          <FormField label={copy.org} secondary={<em>optional</em>} description="Leave blank to use every repository the token can access.">
-            <Input value={org} onChange={(e) => { setOrg(e.target.value); reset(); }} placeholder={`e.g. ${ORG}`} />
-          </FormField>
-          <FormField label={copy.token} description="Needs read access to code and write access to pull requests." error={verify === 'missing' ? `Paste a ${copy.token.toLowerCase()} to verify` : null}>
-            <div className="token-row">
-              <Input type="password" autoComplete="off" spellCheck={false} value={verified && !token ? '••••••••••••••••••••••••' : token} disabled={verified} onChange={(e) => { setToken(e.target.value); reset(); }} placeholder={copy.placeholder} invalid={verify === 'missing'} />
+          {useApp ? (
+            <FormField label="GitHub connection" description={verified ? null : 'Opens GitHub in a new window. Choose your organization and which repositories AWS Transform can access.'}>
               {verified ? (
-                <Button className="verify-btn" onClick={changeToken}>Change</Button>
+                <div className="gh-connected">
+                  <span className="token-ok">Connected to <strong>{orgName}</strong> through the AWS Connector app. It can access {repos.length} repositories.</span>
+                  <Link onClick={changeToken}><strong>Change</strong></Link>
+                </div>
               ) : (
-                <Button className="verify-btn" disabled={verify === 'checking'} onClick={runVerify}>{verify === 'checking' ? 'Verifying…' : 'Verify'}</Button>
+                <button type="button" className="btn gh-connect verify-btn" disabled={verify === 'checking'} onClick={runVerify}>
+                  {verify === 'checking' ? <><Icon.spinner /> Waiting for GitHub…</> : <>Connect to GitHub <Icon.external /></>}
+                </button>
               )}
-            </div>
-            {verified && <div className="token-ok">Verified. This token can access {repos.length} repositories.</div>}
-          </FormField>
+            </FormField>
+          ) : (
+            <>
+            <FormField label={copy.org} secondary={<em>optional</em>} description="Leave blank to use every repository the token can access.">
+              <Input value={org} onChange={(e) => { setOrg(e.target.value); reset(); }} placeholder={`e.g. ${ORG}`} />
+            </FormField>
+            <FormField label={copy.token} description="Needs read access to code and write access to pull requests." error={verify === 'missing' ? `Paste a ${copy.token.toLowerCase()} to verify` : null}>
+              <div className="token-row">
+                <Input type="password" autoComplete="off" spellCheck={false} value={verified && !token ? '••••••••••••••••••••••••' : token} disabled={verified} onChange={(e) => { setToken(e.target.value); reset(); }} placeholder={copy.placeholder} invalid={verify === 'missing'} />
+                {verified ? (
+                  <Button className="verify-btn" onClick={changeToken}>Change</Button>
+                ) : (
+                  <Button className="verify-btn" disabled={verify === 'checking'} onClick={runVerify}>{verify === 'checking' ? 'Verifying…' : 'Verify'}</Button>
+                )}
+              </div>
+              {verified && <div className="token-ok">Verified. This token can access {repos.length} repositories.</div>}
+            </FormField>
+            </>
+          )}
           <div className="field repos-field">
             <div className="repos-head">
               <label className="field-label">Repositories</label>
               {verified && <Link onClick={() => setEditRepos((x) => !x)}><strong>{editRepos ? 'Done' : 'Edit'}</strong></Link>}
             </div>
-            {(verify === null || verify === 'missing') && <p className="muted repo-hint">Available once the token is verified.</p>}
+            {(verify === null || verify === 'missing') && <p className="muted repo-hint">{useApp ? 'Available once you connect to GitHub.' : 'Available once the token is verified.'}</p>}
             {verify === 'checking' && <p className="muted repo-hint"><Icon.spinner /> Listing repositories{org.trim() ? ` in ${orgName}` : ''}…</p>}
             {verified && !editRepos && (
               <p className="repo-hint">
                 {pick === 'all'
-                  ? `All ${visible.length} ${includePrivate ? '' : 'public '}repositories this token can see.`
+                  ? `All ${visible.length} ${includePrivate ? '' : 'public '}repositories this ${useApp ? 'connection' : 'token'} can see.`
                   : `${selected.length} of ${visible.length} repositories selected.`}
               </p>
             )}
@@ -605,13 +647,19 @@ function ConnectStep({ events, back, mode, toggle }) {
               </Alert>
             )}
             {verify === 'failed' && (
-              <Alert type="error" title={`We couldn't verify this token with ${provider}`}>
-                The token was rejected. Check that it hasn't expired and has read access to code and write access to pull requests, then verify again.
-              </Alert>
+              useApp ? (
+                <Alert type="error" title="GitHub didn’t finish the connection">
+                  The sign-in window was closed or the AWS Connector app wasn’t approved for your organization. Connect again, or use a personal access token.
+                </Alert>
+              ) : (
+                <Alert type="error" title={`We couldn't verify this token with ${provider}`}>
+                  The token was rejected. Check that it hasn't expired and has read access to code and write access to pull requests, then verify again.
+                </Alert>
+              )
             )}
             {verify === 'approval' && (
               <Alert type="warning" title={`Your ${copy.org.toLowerCase()} needs an admin to approve AWS Transform`}>
-                {NEEDS_APPROVAL.length} repositories need approval. You can continue with the {repos.length} the token can read today and add the rest later.
+                {NEEDS_APPROVAL.length} repositories need approval. You can continue with the {repos.length} {useApp ? 'the app' : 'the token'} can read today and add the rest later.
               </Alert>
             )}
           </div>
@@ -851,8 +899,6 @@ function WhereEditor({ plan, tried }) {
 function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
   const { draft, set, has, add, remove, update, n, u, health, estate, firstDate, later, named, roleMissing, stackMissing, dateMissing } = plan;
   const [open, setOpen] = useState({});
-  const setHealth = (c) =>
-    c === 'off' ? remove('ple') : health ? update('ple', { cadence: c }) : set({ analyses: [{ type: 'ple', cadence: c }, ...draft.analyses] });
   const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }));
   const isOpen = (k) => open[k] || (k === 'estate' && tried && dateMissing) || (k === 'where' && tried && (roleMissing || stackMissing));
   const these = `these ${n} ${u}`;
@@ -929,7 +975,7 @@ function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
         <section className="setup-card group-card" data-tour="analyses">
           <div className="group-head">
             <h2>Keep them continuously modern</h2>
-            <p className="muted">{available ? 'Two things AWS Transform watches for you. The defaults work for most teams.' : 'Available once your repositories are connected.'}</p>
+            <p className="muted">{available ? 'Two things AWS Transform watches for you, on one schedule. The defaults work for most teams.' : 'Available once your repositories are connected.'}</p>
           </div>
           {available && (
             <>
@@ -943,10 +989,11 @@ function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
                 </div>
                 {isOpen('health') && (
                   <div className="sub-edit">
-                    <div className="runs-start plain">
-                      <strong>Runs</strong>
-                      <Select compact width={130} value={health?.cadence ?? 'off'} onChange={setHealth} options={[...RUNS, { value: 'off', label: 'Off' }]} />
-                    </div>
+                    {health ? row(health) : (
+                      <div className="add-analysis bare">
+                        <button type="button" className="add-link" onClick={() => add('ple')}>+ Add Health analysis</button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -956,9 +1003,9 @@ function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
                     <strong>Your estate</strong>
                     <p className="muted">{estate.length ? runsLine.replace('every connected repository', 'every repository') : 'Nothing yet. Add an analysis to keep your repositories current.'}</p>
                   </div>
-                  <Link onClick={() => toggle('estate')}><strong>{isOpen('estate') ? 'Done' : 'Change'}</strong></Link>
+                  <Link onClick={() => toggle('repos')}><strong>{isOpen('repos') ? 'Done' : 'Change'}</strong></Link>
                 </div>
-                {isOpen('estate') && (
+                {isOpen('repos') && (
                   <div className="sub-edit">
                     {estate.map(row)}
                     <div className="add-analysis bare">
@@ -967,9 +1014,18 @@ function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
                       ))}
                       <button type="button" className="add-link" onClick={() => add('custom')}>+ Add custom</button>
                     </div>
-                    {runsStart}
                   </div>
                 )}
+              </div>
+              <div className="group-row">
+                <div className="group-row-head">
+                  <div>
+                    <strong>Schedule</strong>
+                    <p className="muted">{later ? `First run ${fmtDate(firstDate)}, then ${draft.day} at ${draft.time}` : `Runs start ${draft.day} at ${draft.time}`}. Applies to AWS Health and your estate.</p>
+                  </div>
+                  <Link onClick={() => toggle('estate')}><strong>{isOpen('estate') ? 'Done' : 'Change'}</strong></Link>
+                </div>
+                {isOpen('estate') && <div className="sub-edit">{runsStart}</div>}
               </div>
             </>
           )}

@@ -121,7 +121,133 @@ function skillWalkthrough(groupId, state) {
   };
 }
 
+
+// ---- Custom groups, built in conversation ("Create custom group" on Findings) ----
+
+// The group being drafted, and what the next typed message answers.
+let groupDraft = null;
+let awaiting = null;
+const STOP = new Set(['all', 'the', 'and', 'for', 'with', 'findings', 'finding', 'in', 'of', 'any', 'every', 'group', 'my', 'that', 'are', 'from', 'everything', 'issues']);
+// AWS Health findings stay in their Health groups; everything else open can be regrouped.
+const groupable = (state, d) => d.active.filter((f) => !f.pleId && f.status === 'Open');
+const listOf = (fs) => `${fs.slice(0, 8).map((f) => `- **${f.title}** in ${f.repo} · ${f.severity}`).join('\n')}${fs.length > 8 ? `\n- …and ${fs.length - 8} more` : ''}`;
+const pluralize = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+function suggestName(fs) {
+  const cats = [...new Set(fs.map((f) => f.category))];
+  const repos = [...new Set(fs.map((f) => f.repo))];
+  if (cats.length === 1 && repos.length === 1) return `${cats[0]} in ${repos[0]}`;
+  if (cats.length === 1) return `${cats[0]} fixes`;
+  if (repos.length === 1) return `${repos[0]} cleanup`;
+  return 'My custom group';
+}
+
+function matchFindings(text, pool) {
+  const words = text.toLowerCase().split(/[^a-z0-9.-]+/).filter((w) => w.length > 2 && !STOP.has(w));
+  if (!words.length) return [];
+  const hay = (f) => `${f.title} ${f.category} ${f.repo} ${f.severity} ${f.transformation ?? ''}`.toLowerCase();
+  const all = pool.filter((f) => words.every((w) => hay(f).includes(w)));
+  return all.length ? all : pool.filter((f) => words.some((w) => hay(f).includes(w)));
+}
+
+function pickPrompt(state, d) {
+  awaiting = 'cg-pick';
+  const pool = groupable(state, d);
+  const topCat = Object.entries(pool.reduce((a, f) => ({ ...a, [f.category]: (a[f.category] ?? 0) + 1 }), {})).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const topRepo = Object.entries(pool.reduce((a, f) => ({ ...a, [f.repo]: (a[f.repo] ?? 0) + 1 }), {})).sort((a, b) => b[1] - a[1])[0]?.[0];
+  return {
+    text: `Let's build a custom group. Which findings belong together? Describe them by topic, repository or severity, for example **hard-coded credentials**, **everything in ${topRepo}** or **high severity ${(topCat ?? '').toLowerCase()}**.\nYou can also select rows on Findings first and I'll start from those.`,
+    chips: [
+      topCat && { label: `All ${topCat.toLowerCase()} findings`, intent: 'cg-text', text: topCat },
+      topRepo && { label: `Everything in ${topRepo}`, intent: 'cg-text', text: topRepo },
+      { label: 'Cancel', intent: 'cg-cancel' },
+    ].filter(Boolean),
+  };
+}
+
+function proposal(state, intro) {
+  const fs = state.findings.filter((f) => groupDraft.ids.includes(f.id));
+  const repos = [...new Set(fs.map((f) => f.repo))];
+  const inGroups = state.ple.groups.filter((g) => g.findingIds.some((x) => groupDraft.ids.includes(x))).length;
+  awaiting = null;
+  return {
+    text: `${intro}\n### ${groupDraft.name}\n${listOf(fs)}\n${pluralize(fs.length, 'finding')} across ${pluralize(repos.length, 'repository', 'repositories')}.${inGroups ? ` They leave the ${pluralize(inGroups, 'group')} they're in now.` : ''}${repos.length > 1 ? ' They span several repositories, so you can set a merge order in the plan.' : ''}`,
+    chips: [
+      { label: `Create “${groupDraft.name}”`, run: 'cg-create' },
+      { label: 'Rename it', intent: 'cg-rename' },
+      { label: 'Add more findings', intent: 'cg-add' },
+      { label: 'Cancel', intent: 'cg-cancel' },
+    ],
+  };
+}
+
+export function startCustomGroupChat(ids) {
+  groupDraft = ids.length ? { ids, name: null } : null;
+  awaiting = null;
+  continueInChat(ids.length ? `Create a custom group from my ${pluralize(ids.length, 'selected finding')}` : 'Help me create a custom group', 'custom-group');
+}
+
+function customGroupReply(pick, text, state, d) {
+  const pool = groupable(state, d);
+  if (pick === 'custom-group') {
+    if (!groupDraft) return pickPrompt(state, d);
+    const fs = state.findings.filter((f) => groupDraft.ids.includes(f.id));
+    groupDraft.name = suggestName(fs);
+    return proposal(state, `Here's the group I'd make from your selection. I named it after what the findings share; rename it if you like.`);
+  }
+  if (pick === 'cg-cancel') {
+    groupDraft = null;
+    awaiting = null;
+    return { text: 'No problem, nothing was created. Your findings stay as they were.', chips: [{ label: 'Summarize my findings', intent: 'findings' }] };
+  }
+  if (pick === 'cg-rename') {
+    awaiting = 'cg-name';
+    return { text: `What should the group be called? It's **${groupDraft?.name}** now.` };
+  }
+  if (pick === 'cg-add') {
+    awaiting = 'cg-add';
+    return { text: 'Which findings should I add? Describe them the same way, by topic, repository or severity.' };
+  }
+  // Free text answering the last question.
+  if (awaiting === 'cg-name') {
+    groupDraft.name = text.trim().replace(/^["“]|["”]$/g, '');
+    return proposal(state, 'Renamed. Here it is:');
+  }
+  const found = matchFindings(text, pool).filter((f) => !groupDraft?.ids.includes(f.id));
+  if (!found.length) {
+    return { text: `I couldn't match any open findings to “${text}”. Try a category like **Security**, a repository name, or a word from the finding title.`, chips: [{ label: 'Cancel', intent: 'cg-cancel' }] };
+  }
+  if (awaiting === 'cg-add' && groupDraft) {
+    groupDraft.ids = [...groupDraft.ids, ...found.map((f) => f.id)];
+    return proposal(state, `Added ${pluralize(found.length, 'finding')}.`);
+  }
+  const named = suggestName(found);
+  const q = text.trim();
+  groupDraft = { ids: found.map((f) => f.id), name: named !== 'My custom group' || !q ? named : `${q[0].toUpperCase()}${q.slice(1)} fixes` };
+  return proposal(state, `I found ${pluralize(found.length, 'open finding')} that match. Here's the group I'd create:`);
+}
+
+function runChip(run, state, dispatch, notify) {
+  if (run === 'cg-create' && groupDraft) {
+    const id = `G-custom-${state.seq}`;
+    const { name, ids } = groupDraft;
+    dispatch({ type: 'PLE_CREATE_GROUP', name, findingIds: ids });
+    notify(`Custom group “${name}” created with ${pluralize(ids.length, 'finding')}.`);
+    groupDraft = null;
+    awaiting = null;
+    return {
+      text: `Done. **${name}** is on Findings with ${pluralize(ids.length, 'finding')} and a Custom group tag. Next, review its remediation plan to pick a TD or generate a specialized skill.`,
+      chips: [
+        { label: 'Review the plan', nav: `/app/cm/findings/${id}/plan` },
+        { label: 'Back to findings', nav: '/app/cm/findings' },
+      ],
+    };
+  }
+  return { text: 'That draft is no longer open. Choose Create custom group on Findings to start again.' };
+}
+
 function respond(intent, text, state, d) {
+  if ((intent && (intent === 'custom-group' || intent.startsWith('cg-'))) || (!intent && awaiting)) return customGroupReply(intent === 'cg-text' ? null : intent, text, state, d);
   const t = (text || '').toLowerCase();
   const pick = intent
     || (/(reset|tear ?down|wipe)/.test(t) && 'reset')
@@ -248,7 +374,7 @@ export function continueInChat(text, intent) {
 }
 
 export function ChatPanel({ variant = 'panel' }) {
-  const { state } = useStore();
+  const { state, dispatch, notify } = useStore();
   const d = useDerived();
   const [messages, setMessages] = useState(conversationCache);
   const [draft, setDraft] = useState('');
@@ -260,9 +386,9 @@ export function ChatPanel({ variant = 'panel' }) {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, typing]);
 
-  const send = (text, intent) => {
+  const send = (text, intent, shown = text) => {
     if (!text.trim()) return;
-    setMessages((m) => [...m, { id: `u${Date.now()}`, role: 'user', text, time: timeNow() }]);
+    setMessages((m) => [...m, { id: `u${Date.now()}`, role: 'user', text: shown, time: timeNow() }]);
     setDraft('');
     setTyping(true);
     setTimeout(() => {
@@ -286,7 +412,12 @@ export function ChatPanel({ variant = 'panel' }) {
 
   const onChip = (c) => {
     if (c.nav) navigate(c.nav, c.query);
-    else send(c.label, c.intent);
+    else if (c.run) {
+      setMessages((m) => [...m, { id: `u${Date.now()}`, role: 'user', text: c.label, time: timeNow() }]);
+      const r = runChip(c.run, state, dispatch, notify);
+      setTyping(true);
+      setTimeout(() => { setMessages((m) => [...m, { id: `b${Date.now()}`, role: 'bot', time: timeNow(), ...r }]); setTyping(false); }, 500);
+    } else send(c.text ?? c.label, c.intent, c.label);
   };
 
   const lastBot = [...messages].reverse().find((m) => m.role === 'bot');

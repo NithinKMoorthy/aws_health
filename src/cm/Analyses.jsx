@@ -6,6 +6,7 @@ import {
   Radio, SearchInput, Select, Severity, Status, Table, useSort,
 } from '../components/ui';
 import { NotFound } from './Findings';
+import { HealthSetupPrompt } from '../ple/common';
 
 const FREQUENCIES = [
   { value: 'Daily', label: 'Daily' },
@@ -104,6 +105,7 @@ export function Analyses() {
 
   return (
     <div>
+      <HealthSetupPrompt state={state} />
       <Container
         header={<>Analyses <span className="muted">({rows.length})</span></>}
         actions={<Button variant="primary" onClick={() => navigate('/app/cm/analyses/new')}>Run new analysis</Button>}

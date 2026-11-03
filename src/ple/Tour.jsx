@@ -3,6 +3,7 @@ import { TENANT } from '../data';
 import { navigate, useStore } from '../store';
 import { Icon } from '../components/ui';
 import { CM_CUSTOMER_KEY } from './reducer';
+import { ENABLE_STEP } from './data';
 import { byDeadline, deepLinkMulti, fixable } from './common';
 
 // Story mode: a presenter tour of the PLE journey, from the AWS Health notice to the
@@ -38,14 +39,14 @@ const STEPS = [
     chapter: 0, at: '/console/health', go: () => '/console/health', target: '[data-tour="health-summary"]',
     points: [
       ['[data-tour="health-summary"]', 'AWS Health now shows which of these changes AWS Transform can resolve, right where the customer reads the notice.'],
-      ['[data-tour="health-summary"] .btn-atx', 'One action covers all three runtime notices: 16 functions, nearest deadline first.'],
+      ['[data-tour="health-summary"] .btn-atx', 'One action covers every notice AWS Transform can fix: Lambda functions, EKS clusters and RDS databases, nearest deadline first.'],
     ],
     title: 'Start where the notice lives',
     body: 'AWS Health tells customers a runtime is retiring, but not where it is in their code. AWS Transform meets them right here and offers to fix it.',
-    next: 'Upgrade 16 functions', action: ({ state }) => navigate(deepLinkMulti(byDeadline(state.ple.events.filter(fixable)), TENANT.account).slice(1)),
+    next: 'Upgrade all', action: ({ state }) => navigate(deepLinkMulti(byDeadline(state.ple.events.filter(fixable)), TENANT.account).slice(1)),
   },
   {
-    chapter: 0, at: '/app/ple/welcome', target: '.enable-modes',
+    chapter: 0, at: '/app/ple/welcome', target: '.enable-modes', only: ENABLE_STEP,
     points: [['.enable-included', 'IAM-only access, AWS managed encryption and storage. Nothing to configure first.']],
     title: 'One click to turn on AWS Transform',
     body: 'A new customer has no AWS Transform yet. Quick start enables the web application with defaults, then lands them on the page for the notice they came from.',
@@ -55,7 +56,7 @@ const STEPS = [
     chapter: 0, at: '/app/ple/welcome', target: '.gs-card',
     points: [
       ['.gs-steps', 'Two steps: connect the repositories, then keep them continuously modern.'],
-      ['.gs-events', 'Node.js 16 is due first, Python 3.10 and Java 11 follow, and every future notice after. Fixing these is the hook.'],
+      ['.gs-events', 'Each notice, nearest deadline first, with the resources behind it. Every future notice comes after. Fixing these is the hook.'],
     ],
     title: 'Turn one notice into an ongoing program',
     body: 'The customer arrives with an urgent deadline. We solve that first, and show that more notices are coming so it’s worth setting up once.',
@@ -64,15 +65,15 @@ const STEPS = [
   {
     chapter: 1, at: '/app/ple/connect', go: () => '/app/ple/connect', target: '.setup-narrow',
     points: [
-      ['.access-fields', 'One source for every repository, with a token scoped to code reads and pull requests.'],
-      ['[data-tour="health-analysis"]', 'Health analysis finds the code behind these functions now, then each new AWS Health notice.'],
+      ['.access-fields', 'One source for every repository. Sign in with GitHub, or use a token scoped to code reads and pull requests.'],
+      ['[data-tour="health-analysis"]', 'Health analysis finds the code behind these resources now, then each new AWS Health notice.'],
       ['[data-tour="analyses"]', 'Tech debt and modernization readiness keep the rest of the estate current on a schedule.'],
     ],
     title: 'Set up once, on one page',
     body: 'Connect the repositories and choose what keeps them current. Nothing in the code changes until a team merges a pull request.',
     next: 'Begin continuous analysis',
     action: () => {
-      const inputs = document.querySelectorAll('.access-fields input');
+      const inputs = document.querySelectorAll('.access-fields input:not([type="radio"]):not([type="password"]):not([type="checkbox"])');
       if (inputs[0] && !inputs[0].value) fill(inputs[0], 'acme-github');
       const token = document.querySelector('.access-fields input[type="password"]');
       if (token && !token.value) fill(token, 'ghp_demo_story_mode_token');
@@ -86,7 +87,7 @@ const STEPS = [
     chapter: 2, at: '/app/cm/analyses/A-PLE', go: () => '/app/cm/analyses/A-PLE', target: '.landing-banner',
     ready: (s) => s.ple.analysis?.status === 'done', waiting: 'Finding the code…',
     points: [
-      ['.landing-banner', 'The code behind all 16 functions is found. The campaign can start now.'],
+      ['.landing-banner', 'The code behind every affected resource is found. The campaign can start now.'],
       ['.landing-table', 'Security, tech debt and modernization readiness finish their first run in the background, then repeat on schedule.'],
       ['.landing-settings', 'AWS Health keeps being watched, so the next notice arrives with its code already found.'],
     ],
@@ -142,7 +143,7 @@ const STEPS = [
     body: 'A new end-of-support notice, already matched to code by continuous analysis. One click to its campaign. That’s continuous modernization.',
     next: 'Finish',
   },
-];
+].filter((st) => st.only !== false);
 
 // ---- Engine ------------------------------------------------------------------
 

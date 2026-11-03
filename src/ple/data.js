@@ -53,6 +53,36 @@ const CACHE_REPOS = [
   { repo: 'cache-gateway', findings: 1, fns: [['gateway-cache', 'prod', 'us-east-1'], ['gateway-cache-ro', 'staging', 'us-east-1']], outcome: 'merge', owner: '@web-team', file: 'cdk/lib/cache.ts', line: 18, pr: 140 },
 ];
 
+// Mixed-notice demo: infrastructure-as-code that pins an EKS or RDS version.
+const EKS_REPOS = [
+  { repo: 'platform-eks', delta: 'cluster_version · 2 add-ons', size: [14, 12], findings: 2, fns: [['payments-prod', 'prod', 'us-east-1'], ['data-platform', 'prod', 'us-east-1']], outcome: 'ready', owner: '@platform-team', file: 'eks/clusters.tf', line: 18, pr: 512 },
+  { repo: 'ml-eks', delta: 'cluster_version', size: [8, 8], findings: 2, fns: [['ml-serving', 'staging', 'us-west-2'], ['risk-batch', 'dev', 'us-east-2']], outcome: 'ready', owner: '@ml-team', file: 'cdk/lib/cluster.ts', line: 27, pr: 88 },
+];
+const RDS_REPOS = [
+  { repo: 'ledger-db', delta: 'engine_version · parameter group', size: [11, 9], findings: 2, fns: [['ledger-primary', 'prod', 'us-east-1'], ['ledger-replica', 'prod', 'us-east-1']], outcome: 'ready', owner: '@ledger-team', file: 'rds/main.tf', line: 9, pr: 140 },
+  { repo: 'reporting-db', delta: 'EngineVersion', size: [6, 6], findings: 1, fns: [['reporting', 'staging', 'us-east-1']], outcome: 'ready', owner: '@data-team', file: 'template.yaml', line: 22, pr: 31 },
+];
+
+// Demo switch (Health demo controls): EKS and RDS notices next to the Lambda ones, on by default.
+export const MIXED_KEY = 'atx-mock-lambda-only';
+export const MIXED = (() => {
+  try {
+    return window.localStorage.getItem(MIXED_KEY) !== '1';
+  } catch {
+    return false;
+  }
+})();
+
+// Demo switch (Health demo controls): show the "Enable web application" screen first. Off by default.
+export const ENABLE_STEP_KEY = 'atx-mock-enable-step';
+export const ENABLE_STEP = (() => {
+  try {
+    return window.localStorage.getItem(ENABLE_STEP_KEY) === '1';
+  } catch {
+    return false;
+  }
+})();
+
 const OTHER_REPOS = [
   'admin-console', 'api-gateway-config', 'batch-scheduler', 'billing-ui', 'card-issuing', 'chargeback-svc', 'ci-templates', 'config-service',
   'customer-360', 'data-contracts', 'design-system', 'dev-portal', 'docs-site', 'dispute-portal', 'feature-flags', 'fx-rates', 'gl-mapper',
@@ -76,7 +106,7 @@ export const ESTATE = {
   eosRepos: 40,
 };
 
-export const ORG_REPOS = [...NODE_REPOS, ...PY_REPOS, ...JAVA_REPOS, ...CACHE_REPOS].map((r) => r.repo).concat(OTHER_REPOS).sort();
+export const ORG_REPOS = [...NODE_REPOS, ...PY_REPOS, ...JAVA_REPOS, ...CACHE_REPOS, ...(MIXED ? [...EKS_REPOS, ...RDS_REPOS] : [])].map((r) => r.repo).concat(OTHER_REPOS).sort();
 
 // Visibility and primary language, as the provider lists them. The repositories behind
 // the AWS Health events are all private.
@@ -90,6 +120,7 @@ const FIXTURE_LANG = {
   ...Object.fromEntries(PY_REPOS.map((r) => [r.repo, 'Python'])),
   ...Object.fromEntries(JAVA_REPOS.map((r) => [r.repo, 'Java'])),
   'session-store': 'HCL', 'rate-limiter': 'Go', 'cache-gateway': 'TypeScript',
+  'platform-eks': 'HCL', 'ml-eks': 'TypeScript', 'ledger-db': 'HCL', 'reporting-db': 'YAML',
 };
 const LANGS = ['TypeScript', 'Java', 'Python', 'Go', 'JavaScript'];
 function repoLanguage(repo) {
@@ -161,6 +192,32 @@ export const initialEvents = [
     repos: JAVA_REPOS,
     resources: buildResources(JAVA_REPOS, fnArn),
   },
+  ...(MIXED
+    ? [
+        {
+          id: 'eks-130',
+          arn: arn('EKS', 'AWS_EKS_PLANNED_LIFECYCLE_EVENT'),
+          title: 'Amazon EKS end of standard support for Kubernetes 1.30',
+          service: 'EKS', technology: 'Kubernetes', eventType: 'AWS_EKS_PLANNED_LIFECYCLE_EVENT', unitName: 'cluster',
+          changeDate: '2027-01-23', start: '2026-10-23', time: '12:00 AM PST', codeChange: true, scopeBy: 'regions',
+          td: 'AWS/eks-version-upgrade', tdLabel: 'EKS version upgrade', from: '1.30', target: '1.32', evidence: 'cluster_version = "1.30"',
+          description: 'Amazon EKS ends standard support for Kubernetes 1.30 on January 23, 2027. Clusters still on 1.30 move to extended support, billed at a higher rate. Upgrade to 1.32.',
+          repos: EKS_REPOS,
+          resources: buildResources(EKS_REPOS, (a, n, region) => `arn:aws:eks:${region}:${a}:cluster/${n}`),
+        },
+        {
+          id: 'rds-pg11',
+          arn: arn('RDS', 'AWS_RDS_PLANNED_LIFECYCLE_EVENT'),
+          title: 'Amazon RDS end of standard support for PostgreSQL 11',
+          service: 'RDS', technology: 'PostgreSQL', eventType: 'AWS_RDS_PLANNED_LIFECYCLE_EVENT', unitName: 'DB instance',
+          changeDate: '2027-02-28', start: '2026-08-28', time: '11:00 PM PST', codeChange: true, scopeBy: 'regions',
+          td: 'AWS/rds-engine-upgrade', tdLabel: 'RDS engine upgrade', from: 'postgres 11', target: 'postgres 16', evidence: 'engine_version = "11.22"',
+          description: 'Amazon RDS for PostgreSQL 11 reaches end of standard support on February 28, 2027. Instances still on 11 are enrolled in RDS Extended Support. Upgrade to PostgreSQL 16.',
+          repos: RDS_REPOS,
+          resources: buildResources(RDS_REPOS, (a, n, region) => `arn:aws:rds:${region}:${a}:db:${n}`),
+        },
+      ]
+    : []),
   // Not code changes: AWS Health lists them, AWS Transform doesn't offer a fix.
   manual('ecs-retire-1', 'Amazon ECS task patching retirement', 'ECS', 'AWS_ECS_TASK_PATCHING_RETIREMENT', '2026-10-29', '11:00 PM PDT', 'us-east-1', 'task', 'task/orders/3f9a1c2b',
     'Tasks on an outdated platform version are replaced', 'AWS replaces the task. Make sure your service can restart cleanly.'),
@@ -247,6 +304,8 @@ export function shortName(event) {
     'lambda-py310': 'Lambda Python 3.10',
     'lambda-java11': 'Lambda Java 11',
     'cache-redis6': 'ElastiCache Redis OSS 6',
+    'eks-130': 'EKS 1.30',
+    'rds-pg11': 'RDS PostgreSQL 11',
   };
   return m[event.id] ?? event.title;
 }
@@ -280,6 +339,8 @@ export const TARGETS = {
   'Node.js': ['nodejs20.x', 'nodejs22.x'],
   Java: ['java17', 'java21'],
   Redis: ['Valkey 8.0', 'Redis OSS 7.1'],
+  Kubernetes: ['1.31', '1.32'],
+  PostgreSQL: ['postgres 15', 'postgres 16'],
 };
 
 export const CAMPAIGN_NAMES = {
@@ -287,6 +348,8 @@ export const CAMPAIGN_NAMES = {
   'lambda-py310': ['Eliminate Python 3.10 Lambdas', (t) => `All Lambda functions on ${t}`],
   'lambda-java11': ['Eliminate Java 11 Lambdas', (t) => `All Lambda functions on ${t}`],
   'cache-redis6': ['Retire Redis OSS 6', (t) => `All ElastiCache clusters on ${t}`],
+  'eks-130': ['Upgrade EKS 1.30 clusters', (t) => `All EKS clusters on ${t}`],
+  'rds-pg11': ['Retire PostgreSQL 11', (t) => `All RDS PostgreSQL instances on ${t}`],
 };
 
 // A historical campaign that the new ElastiCache PLE matches (Screen 11).

@@ -131,7 +131,7 @@ function WhatsNew() {
 
 export function WebApp({ parts, query }) {
   const [navOpen, setNavOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(true);
+  const [chatOpen, setChatOpen] = useState(false);
   // "Walk me through it" opens the chat panel if it's collapsed.
   useEffect(() => {
     const open = () => setChatOpen(true);

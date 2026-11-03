@@ -222,11 +222,48 @@ const NAMES = {
   'lambda-py310': ['Lambda end of support: Python 3.10', 'Python 3.10', 'Python 3.13', 'Lambda Python 3.10'],
   'lambda-java11': ['Lambda end of support: Java 11', 'Java 11', 'Java 21', 'Lambda Java 11'],
   'cache-redis6': ['ElastiCache Redis OSS 6 end of standard support', 'Redis OSS 6', 'Valkey 8.0', 'ElastiCache Redis OSS 6'],
+  'eks-130': ['EKS end of standard support: Kubernetes 1.30', '1.30', '1.32', 'EKS 1.30'],
+  'rds-pg11': ['RDS end of standard support: PostgreSQL 11', 'PostgreSQL 11', 'PostgreSQL 16', 'RDS PostgreSQL 11'],
 };
 export const noticeTitle = (e) => NAMES[e.id]?.[0] ?? e.title;
 export const fromName = (e) => NAMES[e.id]?.[1] ?? e.from;
 export const targetName = (e) => NAMES[e.id]?.[2] ?? e.target;
 export const shortTitle = (e) => NAMES[e.id]?.[3] ?? e.title;
+
+// How copy names a set of events: per service where there's room, a neutral total where there isn't.
+const SERVICE = { Lambda: 'Lambda', EKS: 'EKS', RDS: 'RDS', ElastiCache: 'ElastiCache' };
+const ENDING = { Lambda: 'Lambda runtimes', EKS: 'EKS versions', RDS: 'RDS engines', ElastiCache: 'ElastiCache engines' };
+export const SERVICE_LABEL = { Lambda: 'Lambda', EKS: 'Amazon EKS', RDS: 'Amazon RDS', ElastiCache: 'Amazon ElastiCache' };
+const andList = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs[0] ?? '');
+function byService(events) {
+  const m = new Map();
+  events.forEach((e) => {
+    const k = e.service;
+    const g = m.get(k) ?? { service: k, n: 0, event: e };
+    g.n += e.resources.length;
+    m.set(k, g);
+  });
+  return [...m.values()].sort((a, b) => b.n - a.n);
+}
+export const isMixed = (events) => byService(events).length > 1;
+/** Service names, largest first: "Lambda, EKS and RDS". */
+export const serviceList = (events) => andList(byService(events).map((g) => SERVICE[g.service] ?? g.service));
+/** Buttons and short labels: "16 functions" for one service, "16 resources" across several. */
+export function countShort(events) {
+  const n = events.reduce((k, e) => k + e.resources.length, 0);
+  return `${n} ${unitFor(events, n)}`;
+}
+/** Sentences: "16 Lambda functions", or "9 Lambda functions, 4 EKS clusters and 3 RDS DB instances". */
+export function countLong(events) {
+  return andList(byService(events).map((g) => `${g.n} ${SERVICE[g.service] ?? g.service} ${unit(g.event, g.n)}`));
+}
+const ENDING_ONE = { Lambda: 'runtimes', EKS: 'Kubernetes versions', RDS: 'engine versions', ElastiCache: 'engine versions' };
+/** What's ending: "runtimes" for one service, or "Lambda runtimes, EKS versions and RDS engines". */
+export function endingPhrase(events) {
+  const gs = byService(events);
+  if (gs.length === 1) return ENDING_ONE[gs[0].service] ?? 'versions';
+  return andList(gs.map((g) => ENDING[g.service] ?? `${g.service} versions`));
+}
 
 export const unit = (e, n) => {
   const u = e.unitName ?? (e.service === 'Lambda' ? 'function' : e.service === 'RDS' ? 'DB instance' : e.service === 'ElastiCache' ? 'cluster' : 'resource');
@@ -309,4 +346,51 @@ export function nextRunIso(cadence, day, from = MOCK_TODAY) {
     if (cadence === 'monthly') d.setDate(d.getDate() + 28);
   }
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Cross-repo dependency warning for any group or plan item that spans several repositories:
+ * CM can't tell which order their changes must merge in.
+ */
+export function DependencyWarning({ repos, where = 'group', onRemove, onSetOrder, setOrderLabel = 'Set order' }) {
+  if (repos.length < 2) return null;
+  return (
+    <div className="dep-warning">
+      <span className="dep-pill"><Icon.warn width={12} height={12} /> Cross-repo dependency</span>
+      <div>
+        <p>
+          Some repos in this {where} may depend on each other: <strong>{repos.join(', ')}</strong>. CM can’t order their changes yet, so merging their PRs out of order could
+          break the build. Remove the linked repos from this {where}, or merge their PRs in the right order yourself.
+        </p>
+        {(onRemove || onSetOrder) && (
+          <div className="inline-gap">
+            {onSetOrder && <Link onClick={onSetOrder}><strong>{setOrderLabel}</strong></Link>}
+            {onRemove && repos.map((r) => <Link key={r} onClick={() => onRemove(r)}><strong>Remove {r}</strong></Link>)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Shown in CM before Health analysis has run: AWS Health already lists fixable notices,
+ * but nothing is in Findings until the repositories are connected.
+ */
+export function HealthSetupPrompt({ state }) {
+  if (state.ple.onboarded || state.ple.analysis) return null;
+  const events = byDeadline(state.ple.events.filter(fixable));
+  if (!events.length) return null;
+  const n = events.reduce((k, e) => k + e.resources.length, 0);
+  const q = new URLSearchParams({ events: events.map((e) => e.id).join(','), account: events[0].resources[0]?.account ?? '', source: 'health' });
+  return (
+    <div className="health-prompt">
+      <span className="aws-ple-tag">AWS Health PLE</span>
+      <span className="grow">
+        <strong>AWS Health lists {events.length} lifecycle {events.length === 1 ? 'notice' : 'notices'} for {countShort(events)}.</strong> Health analysis isn’t set up yet, so they aren’t in Findings.
+        Connect your repositories and it finds the code behind {n === 1 ? 'it' : 'them'}.
+      </span>
+      <button type="button" className="btn btn-primary" onClick={() => navigate(`/app/ple/welcome?${q}`)}>Set up Health analysis</button>
+    </div>
+  );
 }

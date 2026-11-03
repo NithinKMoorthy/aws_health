@@ -3,9 +3,9 @@ import { fmtDate, TENANT } from '../data';
 import { navigate, useStore } from '../store';
 import { ConsoleFooter, ConsoleTopBar } from '../components/Console';
 import { Button, Icon, Link, SearchInput, Table } from '../components/ui';
-import { daysLeft, OTHER_ACCOUNT } from './data';
+import { daysLeft, ENABLE_STEP, ENABLE_STEP_KEY, MIXED, MIXED_KEY, OTHER_ACCOUNT } from './data';
 import { CM_CUSTOMER_KEY } from './reducer';
-import { byDeadline, DemoPanel, deepLink, deepLinkMulti, fixable, fromName, targetName, unit } from './common';
+import { byDeadline, DemoPanel, deepLink, deepLinkMulti, fixable, targetName, unit } from './common';
 
 // Screen 1: AWS Health Dashboard → Scheduled changes, with an AWS Transform summary
 // of the changes it can fix. Fixable events link straight to their Get started page.
@@ -26,6 +26,8 @@ const COPY = {
   'ecs-retire-1': 'ECS task patching retirement',
   'ecs-retire-2': 'ECS task patching retirement',
   'ec2-retire': 'EC2 instance scheduled retirement',
+  'eks-130': 'EKS end of standard support: Kubernetes 1.30',
+  'rds-pg11': 'RDS end of standard support: PostgreSQL 11',
 };
 export const healthName = (e) => COPY[e.id] ?? e.title;
 const summary = (e) => (fixable(e) ? `Upgrade to ${targetName(e)} before the deadline` : e.summary ?? '');
@@ -100,26 +102,21 @@ function TransformSummary({ events }) {
   const { state } = useStore();
   const fix = events.filter(fixable);
   if (!fix.length) return null;
-  const rows = healthRows(events);
-  const nFixRows = rows.filter((r) => fixable(r.event)).length;
-  const total = fix.reduce((n, e) => n + e.resources.length, 0);
-  const units = [...new Set(fix.map((e) => unit(e, 2)))];
-  const what = units.length === 1 ? units[0] : 'resources';
-  const lambdaOnly = fix.every((e) => e.service === 'Lambda');
   const openCm = () => window.open(`${window.location.pathname}#/app/cm/dashboard`, '_blank', 'noopener');
   return (
     <section className="atx-summary" data-tour="health-summary">
       <div className="atx-summary-head">
         <span className="atx-summary-icon"><Icon.refresh /></span>
         <div className="grow">
-          <h2>AWS Transform can resolve {nFixRows} of these {rows.length} changes</h2>
+          <h2>AWS Continuous Modernization can help with these scheduled changes</h2>
           <p>
-            They affect {total} {lambdaOnly ? `Lambda ${what} on runtimes` : `${what} on versions`} reaching end of support. AWS Transform upgrades each one and opens a pull
-            request for you to review.
+            AWS Transform Continuous Modernization can help address lifecycle changes involving Lambda runtimes, AWS SDK versions,
+            Amazon EKS upgrades, and RDS, Aurora, or ElastiCache engine configurations. It analyzes your application and infrastructure code, identifies
+            potential updates, and helps generate pull requests for review.
           </p>
         </div>
-        <Link onClick={openCm}><strong>{isCmCustomer(state) ? 'Open continuous modernization' : 'Keep runtimes current automatically'}</strong></Link>
-        <button type="button" className="btn btn-atx" onClick={() => openEvents(fix, TENANT.account)}>Upgrade {total} {what}</button>
+        <Link onClick={openCm}><strong>{isCmCustomer(state) ? 'Open continuous modernization' : 'Learn more'}</strong></Link>
+        <button type="button" className="btn btn-atx" onClick={() => openEvents(fix, TENANT.account)}>Upgrade with Continuous Modernization</button>
       </div>
     </section>
   );
@@ -208,11 +205,39 @@ function HealthDemo({ event }) {
     notify(on ? 'Existing CM customer: reloading.' : 'New customer: reloading.', 'info');
     setTimeout(() => window.location.reload(), 400);
   };
+  const setEnableStep = (on) => {
+    try {
+      if (on) window.localStorage.setItem(ENABLE_STEP_KEY, '1');
+      else window.localStorage.removeItem(ENABLE_STEP_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+    notify(on ? 'Showing the Enable web application screen: reloading.' : 'Skipping the Enable web application screen: reloading.', 'info');
+    setTimeout(() => window.location.reload(), 400);
+  };
+  const setMixed = (on) => {
+    try {
+      if (on) window.localStorage.removeItem(MIXED_KEY);
+      else window.localStorage.setItem(MIXED_KEY, '1');
+    } catch {
+      /* storage unavailable */
+    }
+    notify(on ? 'Adding EKS and RDS notices: reloading.' : 'Lambda notices only: reloading.', 'info');
+    setTimeout(() => window.location.reload(), 400);
+  };
   return (
     <DemoPanel>
       <div className="demo-row">
         <span>Customer: <strong>{cm ? 'existing CM customer' : 'new to CM'}</strong></span>
         <Button onClick={() => setCustomer(!cm)}>{cm ? 'Reset to new customer' : 'Make existing CM customer'}</Button>
+      </div>
+      <div className="demo-row">
+        <span>Enable web application screen: <strong>{ENABLE_STEP ? 'shown first' : 'skipped'}</strong></span>
+        <Button onClick={() => setEnableStep(!ENABLE_STEP)}>{ENABLE_STEP ? 'Skip it' : 'Show it first'}</Button>
+      </div>
+      <div className="demo-row">
+        <span>AWS Health notices: <strong>{MIXED ? 'Lambda, EKS and RDS' : 'Lambda only'}</strong></span>
+        <Button onClick={() => setMixed(!MIXED)}>{MIXED ? 'Show Lambda only' : 'Add EKS and RDS notices'}</Button>
       </div>
       {event && (
         <div className="demo-row">

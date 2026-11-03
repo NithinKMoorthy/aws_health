@@ -3,7 +3,7 @@
 // Health status. Both return the full app state.
 
 import {
-  buildFindings, buildGroup, eventById, initialCampaigns, initialEvents, MOCK_TODAY, NEW_EVENT, ORG, ORG_REPOS, OTHER_GROUPS, repoFixture, UNREADABLE,
+  buildFindings, buildGroup, ENABLE_STEP, eventById, initialCampaigns, initialEvents, MOCK_TODAY, NEW_EVENT, ORG, ORG_REPOS, OTHER_GROUPS, repoFixture, UNREADABLE,
 } from './data';
 
 const ANALYSIS_MS = 9000;
@@ -21,8 +21,8 @@ function blankPle() {
   return {
     events: initialEvents,
     onboarded: false,
-    // New customers enable the AWS Transform web application before anything under /app.
-    webAppEnabled: false,
+    // With the demo switch on, new customers enable the web application before anything under /app.
+    webAppEnabled: !ENABLE_STEP,
     entryEventId: null,
     entryEventIds: [],
     schedule: null,
@@ -188,12 +188,30 @@ export function pleReducer(state, action) {
         return g.id === action.toGroupId ? { ...g, findingIds: [...rest, ...action.findingIds] } : rest.length === g.findingIds.length ? g : { ...g, findingIds: rest };
       });
 
+    case 'PLE_CREATE_GROUP': {
+      // A custom group the customer makes from selected findings; they leave any group they were in.
+      const id = `G-custom-${state.seq}`;
+      const moved = mapGroups(state, (g) => {
+        const rest = g.findingIds.filter((x) => !action.findingIds.includes(x));
+        return rest.length === g.findingIds.length ? g : { ...g, findingIds: rest };
+      });
+      return { ...setPle(moved, { groups: [...moved.ple.groups, { id, pleId: null, name: action.name, shortName: action.name, type: 'A', findingIds: action.findingIds, target: null, skill: null, custom: true }] }), seq: state.seq + 1 };
+    }
+
     case 'PLE_SET_TARGET':
       return mapGroups(state, (g) => (g.id === action.groupId ? { ...g, target: action.target } : g));
 
     case 'PLE_SKILL_GENERATE':
       // Test the skill on held-out repositories; keeps the user's edits and choices.
-      return mapGroups(state, (g) => (g.id === action.groupId ? { ...g, skill: { heldOut: 2, ...g.skill, status: 'generating', inputs: action.inputs ?? g.skill?.inputs, startedAt: now, duration: SKILL_MS } } : g));
+      return mapGroups(state, (g) => (g.id === action.groupId ? { ...g, skill: { heldOut: 2, ...g.skill, status: 'generating', inputs: action.inputs ?? g.skill?.inputs, autoRemediate: action.autoRemediate ?? g.skill?.autoRemediate, startedAt: now, duration: action.duration ?? SKILL_MS } } : g));
+
+    case 'PLE_ADHOC_GROUP': {
+      // A standalone finding gets a one-off group so it can have its own skill.
+      const f = action.finding;
+      const id = `G-adhoc-${f.id}`;
+      if (state.ple.groups.some((g) => g.id === id)) return state;
+      return setPle(state, { groups: [...state.ple.groups, { id, pleId: f.pleId ?? null, name: f.title, shortName: f.title, type: 'A', findingIds: [f.id], target: null, skill: null, adhoc: true }] });
+    }
 
     case 'PLE_SKILL_UPDATE':
       return mapGroups(state, (g) => (g.id === action.groupId ? { ...g, skill: { status: 'proposed', heldOut: 2, ...g.skill, ...action.patch } } : g));
@@ -204,7 +222,8 @@ export function pleReducer(state, action) {
     case 'PLE_START_CAMPAIGN': {
       const id = `C-${state.seq}`;
       // Standalone findings run as one-off groups created with the campaign.
-      if (action.newGroups?.length) state = setPle(state, { groups: [...state.ple.groups, ...action.newGroups] });
+      const fresh = (action.newGroups ?? []).filter((ng) => !state.ple.groups.some((g) => g.id === ng.id));
+      if (fresh.length) state = setPle(state, { groups: [...state.ple.groups, ...fresh] });
       const repos = scheduleRepos(state, action.groupIds, { findingIds: action.findingIds, excludeRepos: action.excludeRepos, delays: action.delays }, now);
       const groups = action.groupIds.map((gid) => {
         const g = state.ple.groups.find((x) => x.id === gid);
@@ -362,7 +381,7 @@ export function pleTick(state, now, force = false) {
     next = mapGroups(next, (g) => {
       if (g.skill?.status !== 'generating' || now < g.skill.startedAt + g.skill.duration) return g;
       const repos = new Set(next.findings.filter((f) => g.findingIds.includes(f.id)).map((f) => f.repo)).size;
-      return { ...g, skill: { ...g.skill, status: 'ready', heldOut: 2, passed: 2, saveAs: g.skill.saveAs ?? (repos <= 3 ? 'one-off' : 'draft') } };
+      return { ...g, skill: { ...g.skill, status: 'ready', heldOut: 2, passed: 2, saveAs: g.skill.saveAs ?? (repos <= 3 ? 'one-off' : 'draft'), approved: g.skill.approved || !!g.skill.autoRemediate, autoStart: !!g.skill.autoRemediate } };
     });
   }
 

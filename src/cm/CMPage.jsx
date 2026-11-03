@@ -12,10 +12,10 @@ import { GroupDetail } from '../ple/Groups';
 import { FindingsGrouped } from '../ple/FindingsGrouped';
 import { RemediationPlan } from '../ple/RemediationPlan';
 import { SkillReview } from '../ple/Skill';
-import { CampaignDetail, Campaigns } from '../ple/Campaign';
+import { CampaignDetail } from '../ple/Campaign';
 import { PleAnalysisPage } from '../ple/Analysis';
 
-const TABS = ['dashboard', 'findings', 'campaigns', 'remediations', 'analyses', 'sources', 'settings'];
+const TABS = ['dashboard', 'findings', 'remediations', 'analyses', 'sources', 'settings'];
 
 export function CMPage({ parts, query }) {
   const d = useDerived();
@@ -41,7 +41,6 @@ export function CMPage({ parts, query }) {
   const active = tab === 'problems' ? 'findings' : TABS.includes(tab) ? tab : 'dashboard';
   const views = {
     dashboard: <Dashboard />,
-    campaigns: <Campaigns />,
     findings: <FindingsGrouped key={JSON.stringify(query)} query={query} />,
     remediations: <Remediations />,
     analyses: <Analyses />,
@@ -57,7 +56,6 @@ export function CMPage({ parts, query }) {
         tabs={[
           { id: 'dashboard', label: 'Dashboard' },
           { id: 'findings', label: 'Findings', badge: d.openHigh },
-          { id: 'campaigns', label: 'Campaigns' },
           { id: 'remediations', label: 'Remediations' },
           { id: 'analyses', label: 'Analyses' },
           { id: 'sources', label: 'Sources' },

@@ -20,6 +20,115 @@ const ROWS = [
 ];
 
 /** Default skill content for a group. Edits are stored on group.skill. */
+
+// Skills generated for the seeded tech-debt groups: short names and concrete steps,
+// the way AWS Transform words a skill it built from the analysis.
+const GROUP_SKILLS = {
+  'G-legacy-sec': (repos) => ({
+    name: 'Vulnerable dependency and secret removal',
+    target: 'jsonwebtoken, Express and body-parser on patched versions · secrets moved out of plaintext config',
+    approach: 'Bump each vulnerable package to its nearest patched release, then move config secrets to AWS Secrets Manager',
+    validation: `Dependency scan reports no known CVEs and secret scanning is clean in ${repos}`,
+    guardrails: 'No major-version jumps without owner approval · rotated values are logged for audit',
+    details: {
+      target: ['jsonwebtoken 8 → 9.0.2', 'Express 4.16 → 4.21 with body-parser 1.20.3', 'config/default.json secrets → AWS Secrets Manager', 'Application code flagged by the security scan'],
+      approach: ['Update package.json and the lockfile', 'Adjust jwt.verify calls for the v9 algorithm defaults', 'Load secrets at startup with the AWS SDK'],
+      validation: ['npm audit reports no high or critical CVEs', 'Secret scanning finds no credentials', 'Unit and integration tests pass'],
+      guardrails: ['Owner approval for major-version upgrades', 'Rotation logged for audit', 'One pull request per repository'],
+    },
+    decisions: [
+      ['Secret store', 'AWS Secrets Manager', ['AWS Secrets Manager', 'SSM Parameter Store']],
+      ['Upgrade policy', 'Nearest patched version', ['Nearest patched version', 'Latest major']],
+      ['On missing secret', 'Fail closed at startup', ['Fail closed at startup', 'Log and continue']],
+    ],
+  }),
+  'G-mkp-rn': (repos) => ({
+    name: 'React Native and Expo upgrade',
+    target: 'React Native 0.63 → 0.74 and Expo SDK 38 → 51, with unmaintained packages replaced',
+    approach: 'Step through each breaking release with the upgrade helper, then swap deprecated packages for maintained ones',
+    validation: `iOS and Android builds pass and the app launches on both simulators in ${repos}`,
+    guardrails: 'Native module changes need owner approval · no UI changes beyond what the upgrade needs',
+    details: {
+      target: ['react-native 0.63.4 → 0.74', 'expo 38 → 51', 'Deprecated packages flagged by the analysis'],
+      approach: ['Apply each React Native upgrade-helper diff in order', 'Run expo install --fix after each step', 'Replace unmaintained packages with maintained equivalents'],
+      validation: ['iOS build passes', 'Android build passes', 'Smoke test launches on both simulators'],
+      guardrails: ['Owner approval for native module changes', 'One pull request per repository'],
+    },
+    decisions: [
+      ['Target version', 'React Native 0.74', ['React Native 0.74', 'React Native 0.73']],
+      ['Workflow', 'Expo managed', ['Expo managed', 'Bare workflow']],
+    ],
+  }),
+  'G-mkp-maint': (repos) => ({
+    name: 'Mobile app hardening',
+    target: 'Tokens in secure storage, endpoints in config, CI and onboarding docs in place',
+    approach: 'Move tokens from AsyncStorage to expo-secure-store, lift hard-coded endpoints into environment config, add a CI workflow and README',
+    validation: `Tests pass, no tokens in AsyncStorage, and the CI workflow runs green in ${repos}`,
+    guardrails: 'Existing sessions migrate on first launch · no endpoint values change',
+    details: {
+      target: ['AsyncStorage token reads and writes', 'Hard-coded API endpoints', 'Missing CI/CD configuration', 'Missing README'],
+      approach: ['Wrap token access in a secure-store helper', 'Read endpoints from app config per environment', 'Add a GitHub Actions workflow for lint, test and build', 'Generate a README from the project layout'],
+      validation: ['Unit tests pass', 'Static check finds no token in AsyncStorage', 'CI workflow passes on the pull request'],
+      guardrails: ['Migrate stored sessions on first launch', 'One pull request per repository'],
+    },
+    decisions: [
+      ['Token storage', 'expo-secure-store', ['expo-secure-store', 'react-native-keychain']],
+      ['CI provider', 'GitHub Actions', ['GitHub Actions', 'AWS CodeBuild']],
+    ],
+  }),
+  'G-legacy-node': (repos) => ({
+    name: 'Node.js 22 modernization',
+    target: 'Node.js 16 → 22 with callback code moved to async/await and a current lockfile',
+    approach: 'Bump the runtime and engines field, convert callback-style handlers to async/await, regenerate the lockfile',
+    validation: `Build and tests pass on Node.js 22 and the analysis no longer reports the runtime in ${repos}`,
+    guardrails: 'Behavior-preserving refactors only · one pull request per repository',
+    details: {
+      target: ['Node.js 16.x runtime', 'Callback-style async code', 'npm lockfile v1'],
+      approach: ['Update .nvmrc, engines and the Dockerfile base image', 'Convert callbacks with util.promisify and async/await', 'Regenerate package-lock.json as lockfile v3'],
+      validation: ['Build passes on Node.js 22', 'Unit tests pass with no regressions', 'Re-analysis no longer reports Node.js 16'],
+      guardrails: ['No changes to public API responses', 'One pull request per repository'],
+    },
+    decisions: [
+      ['Target version', 'Node.js 22', ['Node.js 22', 'Node.js 20']],
+      ['Async style', 'async/await', ['async/await', 'Promises']],
+    ],
+  }),
+  'G-demo-scaffold': (repos) => ({
+    name: 'Node.js project scaffolding',
+    target: 'package.json, source layout, .gitignore and a license added to the empty repository',
+    approach: 'Generate a minimal Node.js project that matches your other repositories, then add standard ignore and license files',
+    validation: `npm install and npm test run cleanly in ${repos}`,
+    guardrails: 'No application logic added · license matches your organization default',
+    details: {
+      target: ['Missing package.json', 'Empty source tree', 'Missing .gitignore entries', 'Missing license file'],
+      approach: ['Create package.json with your default scripts', 'Add src/ and test/ with a placeholder module', 'Add .gitignore for Node.js', 'Add the organization license'],
+      validation: ['npm install succeeds', 'npm test runs the placeholder test', 'Re-analysis no longer reports the findings'],
+      guardrails: ['No business logic generated', 'One pull request per repository'],
+    },
+    decisions: [
+      ['Module system', 'ES modules', ['ES modules', 'CommonJS']],
+      ['License', 'Apache-2.0', ['Apache-2.0', 'MIT', 'Proprietary']],
+    ],
+  }),
+  'G-ml-quality': (repos) => ({
+    name: 'Test and lint baseline',
+    target: 'A test framework, one shared lint config and no console logging in production paths',
+    approach: 'Add Jest with a starter test per module, consolidate ESLint configs, replace console calls with the logger',
+    validation: `Tests and lint pass in CI in ${repos}`,
+    guardrails: 'No behavior changes · existing lint rules kept unless they conflict',
+    details: {
+      target: ['No test framework or test files', 'Inconsistent lint configuration', 'Console logging in production paths', 'Unused dependencies'],
+      approach: ['Add Jest and a starter test for each module', 'Merge lint configs into one .eslintrc', 'Swap console.* for the shared logger', 'Remove unused dependencies'],
+      validation: ['npm test passes', 'npm run lint passes', 'Bundle builds with no console calls in production'],
+      guardrails: ['No behavior changes', 'One pull request per repository'],
+    },
+    decisions: [
+      ['Test framework', 'Jest', ['Jest', 'Vitest']],
+      ['Lint preset', 'Keep existing rules', ['Keep existing rules', 'Adopt recommended preset']],
+    ],
+  }),
+};
+
 export function skillSpec(g, v) {
   const n = v.repos.length;
   const repos = `${n} ${n === 1 ? 'repository' : 'repositories'}`;
@@ -62,9 +171,10 @@ export function skillSpec(g, v) {
       ],
     };
   }
+  if (GROUP_SKILLS[g.id]) return GROUP_SKILLS[g.id](n === 1 ? v.repos[0] : `all ${repos}`);
   return {
     name: `${g.shortName} fix`,
-    target: `"${g.shortName}" resolved in all ${repos}`,
+    target: `${g.shortName} resolved in ${n === 1 ? v.repos[0] : `all ${repos}`}`,
     approach: "Apply the smallest change that resolves the finding, following each repository's conventions",
     validation: 'Build and unit tests pass · the analysis no longer reports the finding',
     guardrails: 'One pull request per repository · no public API changes without owner approval',
@@ -81,11 +191,26 @@ export function skillSpec(g, v) {
   };
 }
 
-const RUN_OPTIONS = [
+export const RUN_OPTIONS = [
   ['published', 'Run and publish', (r) => `Runs on ${r}, then publishes to the Skills Library once it passes validation.`, 'Run, then publish'],
   ['draft', 'Run and publish a draft now', () => 'Visible in the Skills Library right away, marked "Not yet validated".', 'Run and publish draft'],
   ['one-off', 'Run one-off', (r) => `Runs on ${r} only. Nothing is shared.`, 'Run one-off'],
 ];
+
+// Existing TDs that could fix these findings instead of the generated skill, best match first.
+function tdCandidates(g, v) {
+  const n = v.live.length;
+  const text = `${g.name} ${v.live.map((f) => `${f.title} ${f.category}`).join(' ')}`;
+  const cov = [n, Math.max(1, n - 1), 1];
+  const rows = /secret|credential|password|api key/i.test(text)
+    ? [['Custom/acme-secrets-hygiene-v2', 'Custom TD in your registry · Config-file credentials and vault references · Security team'], ['Custom/secrets-manager-migration', 'Custom TD in your registry · Moves hard-coded credentials to AWS Secrets Manager and loads them at startup · Security team'], ['AWS/git-history-secret-purge', 'AWS-managed TD · Removes committed secrets from repository history after rotation']]
+    : /react native|expo|mobile/i.test(text)
+      ? [['Custom/react-native-upgrade-kit', 'Custom TD in your registry · Steps React Native through each breaking release · Mobile platform team'], ['AWS/nodejs-version-upgrade', 'AWS-managed TD · Upgrades the Node.js toolchain the build uses'], ['AWS/nodejs-aws-sdk-v2-to-v3', 'AWS-managed TD · Moves AWS SDK for JavaScript v2 calls to v3']]
+      : /cve|vulnerab|dependenc/i.test(text)
+        ? [['Custom/dependency-patch-policy', 'Custom TD in your registry · Bumps vulnerable packages to the nearest patched version · Security team'], ['AWS/nodejs-aws-sdk-v2-to-v3', 'AWS-managed TD · Moves AWS SDK for JavaScript v2 calls to v3'], ['AWS/nodejs-version-upgrade', 'AWS-managed TD · Upgrades the runtime and its engines field']]
+        : [[`Custom/${g.shortName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32)}`, 'Custom TD in your registry · Built by your platform team for findings like these'], ...TRANSFORMATIONS.slice(0, 2).map((t) => [t, 'AWS-managed TD'])];
+  return rows.map((r, i) => [...r, cov[i]]);
+}
 
 export function SkillReview({ id, query = {} }) {
   const { state, dispatch, notify } = useStore();
@@ -95,7 +220,8 @@ export function SkillReview({ id, query = {} }) {
   const [open, setOpen] = useState(() => new Set());
   const [contextOpen, setContextOpen] = useState(false);
   const [pendingRun, setPendingRun] = useState(false);
-  const [td, setTd] = useState(TRANSFORMATIONS[0]);
+  const [td, setTd] = useState(null);
+  const [tdQuery, setTdQuery] = useState('');
   const [customPrompt, setCustomPrompt] = useState('');
   const [, force] = useState(0);
   const s = g?.skill ?? { status: 'proposed' };
@@ -139,7 +265,7 @@ export function SkillReview({ id, query = {} }) {
     }
   }, [pendingRun, s.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!g || g.type !== 'C') return <NotFound what="Specialized skill" back="/app/cm/findings" />;
+  if (!g) return <NotFound what="Specialized skill" back="/app/cm/findings" />;
   const e = v.event;
   const reposLabel = v.repos.length === 1 ? v.repos[0] : `the ${v.repos.length} repositories in this group`;
   const remediated = v.campaigns.length > 0;
@@ -164,7 +290,7 @@ export function SkillReview({ id, query = {} }) {
   };
 
   return (
-    <div className="page">
+    <div className="page sr">
       <Breadcrumbs
         items={[
           { label: 'Findings', onClick: () => navigate('/app/cm/findings', e ? { tab: 'ple' } : undefined) },
@@ -172,27 +298,22 @@ export function SkillReview({ id, query = {} }) {
           { label: 'Review skill' },
         ]}
       />
-      {query.return && (
-        <Alert type="info" action={<Button onClick={() => navigate(query.return)}>Back to plan</Button>}>
-          You're reviewing this skill for a remediation plan. Approve it to mark the item ready.
-        </Alert>
-      )}
       <h1 className="page-title">Review specialized skill</h1>
-      <p className="page-desc">A specialized transformation skill is ready for this group. Review it, run it, and publish it so other repositories can reuse it.</p>
+      <p className="page-desc">A specialized transformation skill is ready for this finding. Review it, run it, and publish it so other repositories can reuse it.</p>
 
       <Container>
         <div className="skill-callout">
-          <span className="skill-callout-icon"><Icon.refresh /></span>
+          <span className="skill-callout-icon"><TransformGlyph /></span>
           <div>
             <strong>A specialized transformation skill is ready</strong>
             <p>
-              Built from {e ? <>the AWS Health PLE and an analysis of {reposLabel}</> : <>an analysis of {reposLabel}</>}. No managed transformation covers {e ? 'this change' : 'these findings'}, so AWS Transform
-              generated a skill and picked a recommended option for each decision. Use it as is, modify its decisions, or switch to a custom or managed transformation.
+              Built from {e ? <>the AWS Health PLE and an analysis of {reposLabel}</> : <>an analysis of {reposLabel}</>}. No managed TD covers {e ? 'this change' : 'these findings'}, so AWS Transform generated a skill for
+              {v.repos.length === 1 ? ' this repository' : ' these repositories'} and picked a recommended option for each decision. Use it as is, modify its decisions, or switch to a custom or managed TD.
             </p>
           </div>
         </div>
         <div className="skill-strip">
-          <span className="strip-label">Group · {remediated ? 'remediation started' : 'not yet remediated'}</span>
+          <span className="strip-label">Finding · {remediated ? 'remediation started' : 'not yet remediated'}</span>
           <strong>{groupTitle(g)}</strong>
           {e && <span className="aws-ple-tag">AWS Health PLE</span>}
           <span className="pill">{v.repos.length === 1 ? <span className="mono">{v.repos[0]}</span> : `${v.repos.length} repositories`}</span>
@@ -210,14 +331,14 @@ export function SkillReview({ id, query = {} }) {
       >
         <ol className="skill-steps">
           <li>
-            <span className="step-marker done"><Icon.check /></span>
+            <span className="step-marker done"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2.2" /></svg></span>
             <div className="step-card done">
               <div className="step-card-head">
-                <h3>Analysis · {analysis?.name ?? typeLabel(v.live[0]?.analysisType)} <span className="done-tag">Done</span></h3>
-                {analysis && <Link onClick={() => navigate(`/app/cm/analyses/${analysis.id}`)}>View analysis</Link>}
+                <h3>Analysis · {v.repos.length === 1 ? v.repos[0] : `${v.repos.length} repositories`} <span className="done-tag">Done</span></h3>
+                <Link onClick={() => navigate(analysis ? `/app/cm/analyses/${analysis.id}` : '/app/cm/analyses')}><strong>View analysis</strong></Link>
               </div>
               <p>
-                Analyzed <strong>{reposLabel}</strong> on {fmtDate(analysis?.date?.slice(0, 10) ?? MOCK_TODAY)}. No managed transformation matched, so the specialized skill was derived from it.
+                Analyzed <strong>{reposLabel}</strong> on {fmtDate(analysis?.date?.slice(0, 10) ?? MOCK_TODAY)}. No managed TD matched, so the specialized skill was derived from it.
               </p>
             </div>
           </li>
@@ -227,19 +348,19 @@ export function SkillReview({ id, query = {} }) {
             <div className="step-card">
               <div className="step-card-head">
                 <h3>Transformation</h3>
-                <div className="segmented">
+                <div className="seg-soft" role="radiogroup" aria-label="How to fix">
                   <button type="button" className={mode === 'skill' ? 'on' : ''} onClick={() => setMode('skill')}>Specialized skill</button>
-                  <button type="button" className={mode === 'td' ? 'on' : ''} onClick={() => setMode('td')}>Managed or custom transformation</button>
+                  <button type="button" className={mode === 'td' ? 'on' : ''} onClick={() => setMode('td')}>Managed or custom TD</button>
                 </div>
               </div>
               {mode === 'skill' ? (
                 <>
                   <div className="skill-head">
-                    <span className="skill-icon"><Icon.refresh /></span>
+                    <span className="skill-icon">✦</span>
                     <div className="grow">
                       <strong>{name}</strong>
                       <div className="muted small">
-                        Generated for {g.shortName} from your analysis · covers {v.live.length} of {v.live.length} findings · {spec.details.validation.length} of {spec.details.validation.length} validations
+                        Generated for {v.repos.length === 1 ? v.repos[0] : `${v.repos.length} repositories`} from your analysis · covers {v.live.length} of {v.live.length} findings · {spec.details.validation.length} of {spec.details.validation.length} validations
                       </div>
                     </div>
                     <Button onClick={() => setEditing((x) => !x)}>{editing ? 'Done editing' : 'Edit skill'}</Button>
@@ -248,7 +369,7 @@ export function SkillReview({ id, query = {} }) {
                     {ROWS.map(([k, label]) => (
                       <div key={k} className="skill-row">
                         <button type="button" className="skill-row-head" onClick={() => toggleRow(k)} aria-expanded={open.has(k)}>
-                          <Icon.caret className={open.has(k) ? '' : 'rot'} />
+                          <span className={`sr-chev ${open.has(k) ? 'open' : ''}`} aria-hidden="true">›</span>
                           <span className="skill-row-label">{label}</span>
                           <span className="skill-row-value">{edits[k] ?? spec[k]}</span>
                           <span className={`tag ${edited(k) ? 'tag-blue' : ''}`}>{edited(k) ? 'Edited' : 'Default'}</span>
@@ -287,20 +408,40 @@ export function SkillReview({ id, query = {} }) {
                     ) : (
                       <span className="grow">{s.context ? s.context : 'None added'}</span>
                     )}
-                    <Link onClick={() => setContextOpen((c) => !c)}>{contextOpen ? 'Done' : s.context ? 'Edit context' : 'Add context'}</Link>
+                    <Link onClick={() => setContextOpen((c) => !c)}><strong>{contextOpen ? 'Done' : s.context ? 'Edit context' : 'Add context'}</strong></Link>
                   </div>
                 </>
               ) : (
                 <div className="td-switch">
-                  <p className="muted small">No managed transformation covers {e ? 'this change' : 'these findings'} today. Switching skips the skill; the transformation runs on the same repositories.</p>
-                  <FormField label="Transformation">
-                    <Select value={td} onChange={setTd} options={[...TRANSFORMATIONS.map((t) => ({ value: t, label: t, description: 'AWS-managed' })), { value: 'custom', label: 'Custom transformation', description: 'Describe the change in your own words' }]} />
-                  </FormField>
-                  {td === 'custom' && (
-                    <FormField label="What should change?">
-                      <textarea className="input textarea" rows={3} value={customPrompt} onChange={(x) => setCustomPrompt(x.target.value)} />
-                    </FormField>
-                  )}
+                  <p>Use an existing transformation definition instead of the generated skill.</p>
+                  <h4 className="td-list-head">Recommended for these findings</h4>
+                  <div className="td-list">
+                    {tdCandidates(g, v).map(([id, desc, covers], i) => (
+                      <label key={id} className={`td-option ${td === id ? 'on' : ''}`}>
+                        <input type="radio" name="td" checked={td === id} onChange={() => setTd(id)} />
+                        <span className="grow">
+                          <span className="mono">{id}</span>
+                          <span className="muted small td-option-desc">{desc}</span>
+                        </span>
+                        <span className={`small ${i === 0 ? 'td-cover ok' : 'muted'}`}>Covers {covers} of {v.live.length} findings</span>
+                      </label>
+                    ))}
+                    {tdQuery.trim() && TRANSFORMATIONS.filter((t) => t.toLowerCase().includes(tdQuery.trim().toLowerCase())).map((t) => (
+                      <label key={t} className={`td-option ${td === t ? 'on' : ''}`}>
+                        <input type="radio" name="td" checked={td === t} onChange={() => setTd(t)} />
+                        <span className="grow">
+                          <span className="mono">{t}</span>
+                          <span className="muted small td-option-desc">AWS-managed TD · search result</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <h4 className="td-list-head">Search all transformation definitions</h4>
+                  <div className="td-search">
+                    <Icon.search />
+                    <input className="input" value={tdQuery} onChange={(x) => setTdQuery(x.target.value)} placeholder="Find by name or what it changes, e.g. logging, Java, IAM" />
+                  </div>
+                  <Link onClick={() => navigate('/app/cm/settings')}><strong>Browse all capabilities</strong></Link>
                 </div>
               )}
             </div>
@@ -309,7 +450,16 @@ export function SkillReview({ id, query = {} }) {
           <li>
             <span className="step-marker">3</span>
             <div className="step-card">
-              <h3>Run and publish</h3>
+              <h3>{mode === 'td' ? 'Review and run' : 'Run and publish'}</h3>
+              {mode === 'td' ? (
+                <>
+                  <p className="muted">{td ? `${td} runs on ${reposLabel}, one pull request per repository. Nothing is published.` : 'Pick a transformation definition above to continue.'}</p>
+                  <div className="inline-gap" style={{ marginTop: 12 }}>
+                    <Button variant="primary" disabled={!td} onClick={run}>Continue with this TD</Button>
+                    <Button onClick={() => setMode('skill')}>Use the specialized skill</Button>
+                  </div>
+                </>
+              ) : (<>
               <div className="run-options">
                 {RUN_OPTIONS.map(([val, label, desc]) => (
                   <label key={val} className={`radio-card wide ${saveAs === val ? 'on' : ''}`}>
@@ -336,29 +486,36 @@ export function SkillReview({ id, query = {} }) {
                   ? 'Nothing is published. The skill is kept with this campaign only.'
                   : `Publishes the skill definition, your decisions and context as defaults, and validation rules. No code from ${reposLabel}.`}
               </p>
-              <p className="muted small">
-                <Icon.info /> Before it changes your code, AWS Transform tests the skill on {s.heldOut ?? 2} held-out repositories. {s.status === 'ready' ? `It passed on ${s.passed} of ${s.heldOut}.` : ''}
-              </p>
               {s.status === 'generating' && <ProgressBar value={pct} label={pct < 50 ? 'Running build and test on held-out repositories…' : 'Checking for regressions…'} tone="progress" />}
               <div className="inline-gap" style={{ marginTop: 12 }}>
-                {query.return && mode === 'skill' ? (
-                  <Button variant="primary" disabled={!name.trim()} onClick={() => { update({ approved: true }); notify(`"${name}" approved. It's tested on held-out repositories when the campaign starts.`); navigate(query.return); }}>
-                    Approve skill
+                {query.return ? (
+                  <Button variant="primary" disabled={!name.trim()} onClick={() => { update({ approved: true }); notify(`"${name}" approved. It runs${saveAs === 'one-off' ? '' : ', then publishes,'} when the campaign starts.`); navigate(query.return); }}>
+                    {runLabel}
                   </Button>
                 ) : (
                   <Button variant="primary" disabled={s.status === 'generating' || !name.trim()} onClick={run}>
                     {mode === 'td' ? 'Use this transformation' : s.status === 'generating' ? 'Testing…' : runLabel}
                   </Button>
                 )}
-                <Button className="btn-ai" onClick={() => continueInChat(`Walk me through the "${name}" skill`, `skill:${g.id}`)}>
-                  <Icon.refresh style={{ marginRight: 6 }} /> Walk me through it
-                </Button>
+                <button type="button" className="btn btn-ai sr-walk" onClick={() => continueInChat(`Walk me through the "${name}" skill`, `skill:${g.id}`)}>
+                  <span aria-hidden="true">✦</span> Walk me through it
+                </button>
                 {remediated && <Link onClick={() => navigate(`/app/cm/campaigns/${v.campaigns[0].id}`)}>View campaign</Link>}
               </div>
+              </>)}
             </div>
           </li>
         </ol>
       </Container>
     </div>
+  );
+}
+
+function TransformGlyph() {
+  return (
+    <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
+      <path d="M10 2.5l6.5 3.75v7.5L10 17.5l-6.5-3.75v-7.5z" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M6.8 11.2l2.2-2.4 1.8 1.6 2.4-2.8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
   );
 }

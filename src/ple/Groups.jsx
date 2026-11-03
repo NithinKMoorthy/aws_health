@@ -6,7 +6,7 @@ import {
 } from '../components/ui';
 import { NotFound } from '../cm/Findings';
 import { eventById } from './data';
-import { ChangeDate, Drawer, groupTypeLabel, groupView, Meter, PleTag, SafetyBar, shortTitle, unit } from './common';
+import { ChangeDate, DependencyWarning, Drawer, groupTypeLabel, groupView, Meter, PleTag, SafetyBar, shortTitle, unit } from './common';
 
 // Screen 7 (group detail + PLE details drawer), shared finding modals, and the
 // Screen 11 banners shown on Findings.
@@ -125,6 +125,7 @@ export function GroupDetail({ id, query }) {
           {v.safety.tone === 'warn' && <p className="warn-line small" style={{ marginTop: 10 }}><Icon.warn /> {v.safety.detail}</p>}
         </Container>
       )}
+      {!v.campaigns.length && <DependencyWarning repos={v.repos} onSetOrder={() => navigate(planPath(g), { review: '1' })} setOrderLabel="Set the order in the plan" />}
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
       {tab === 'findings' && (

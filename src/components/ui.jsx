@@ -242,6 +242,56 @@ export function Select({ value, options, onChange, placeholder = 'Choose', inval
   );
 }
 
+/**
+ * Multi-select filter with search. sections: [{ title?, options: [{ value, label }] }].
+ * value: selected values ([] = all). allLabel shows when nothing is picked.
+ */
+export function MultiSelect({ value, sections, onChange, allLabel, noun, placeholder = 'Find', width }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = useRef(null);
+  useClickOutside(ref, () => setOpen(false));
+  const all = sections.flatMap((s) => s.options);
+  const label = !value.length ? allLabel : value.length === 1 ? all.find((o) => o.value === value[0])?.label ?? allLabel : `${value.length} ${noun}`;
+  const term = q.trim().toLowerCase();
+  const shown = sections.map((s) => ({ ...s, options: s.options.filter((o) => !term || o.label.toLowerCase().includes(term)) })).filter((s) => s.options.length);
+  const toggle = (v) => onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
+  return (
+    <div className="select compact multi-select" ref={ref} style={width ? { width } : undefined}>
+      <button type="button" className={`select-trigger ${open ? 'open' : ''}`} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <span className="ms-label">{label}</span>
+        <Icon.caret className={`caret ${open ? 'up' : ''}`} />
+      </button>
+      {open && (
+        <div className="ms-menu">
+          <div className="ms-search">
+            <Icon.search />
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} aria-label={placeholder} />
+          </div>
+          <div className="ms-list">
+            {shown.map((s, i) => (
+              <div key={s.title ?? i}>
+                {s.title && <div className="ms-section">{s.title}</div>}
+                {s.options.map((o) => (
+                  <label key={o.value} className="ms-option">
+                    <input type="checkbox" checked={value.includes(o.value)} onChange={() => toggle(o.value)} />
+                    <span>{o.label}</span>
+                  </label>
+                ))}
+              </div>
+            ))}
+            {!shown.length && <div className="ms-empty muted">No matches</div>}
+          </div>
+          <div className="ms-foot">
+            <span className="muted small">{value.length ? `${value.length} selected` : 'Showing all'}</span>
+            {value.length > 0 && <button type="button" className="link-btn" onClick={() => onChange([])}>Clear</button>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ButtonDropdown({ label, items, variant = 'normal', onItem }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
