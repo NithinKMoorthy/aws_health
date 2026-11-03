@@ -560,7 +560,7 @@ function GroupRows({ r, openGenerate, recommended, open, toggle, selected, toggl
         <tr className="child-row dep-row">
           <td className="cb" />
           <td colSpan={4}>
-            <DependencyWarning repos={repos} onSetOrder={() => navigate(planPath(g), { review: '1' })} setOrderLabel="Set the order in the plan" />
+            <DependencyWarning repos={repos} />
           </td>
         </tr>
       )}

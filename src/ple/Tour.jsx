@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { TENANT } from '../data';
 import { navigate, useStore } from '../store';
 import { Icon } from '../components/ui';
-import { CM_CUSTOMER_KEY } from './reducer';
-import { ENABLE_STEP } from './data';
+import { CM_CUSTOMER_KEY, SKIP_ONBOARDING_KEY } from './reducer';
+import { ENABLE_STEP, ORG, ORG_REPOS, UNREADABLE } from './data';
 import { byDeadline, deepLinkMulti, fixable } from './common';
 
 // Story mode: a presenter tour of the PLE journey, from the AWS Health notice to the
@@ -173,6 +173,19 @@ export function startTour(state) {
   return true;
 }
 
+// Reloads as a new customer who just finished setup, landing on Findings.
+export function skipToFindings() {
+  if (!window.confirm('Skip to Findings as a customer who just finished setup? This resets the prototype.')) return;
+  try {
+    window.localStorage.removeItem(CM_CUSTOMER_KEY);
+    window.sessionStorage.setItem(SKIP_ONBOARDING_KEY, '1');
+  } catch {
+    /* storage unavailable */
+  }
+  window.location.hash = '/app/cm/findings?tab=ple';
+  window.location.reload();
+}
+
 function useTargetRect(selector, active) {
   const [rect, setRect] = useState(null);
   const [el, setEl] = useState(null);
@@ -235,6 +248,19 @@ export function Tour() {
       auto = null;
     }
     if (auto) setIdx(0);
+    // After skipping onboarding, kick off the estate analyses setup would have started.
+    let skipped = null;
+    try {
+      skipped = window.sessionStorage.getItem(SKIP_ONBOARDING_KEY);
+      window.sessionStorage.removeItem(SKIP_ONBOARDING_KEY);
+    } catch {
+      skipped = null;
+    }
+    if (skipped) {
+      const repos = ORG_REPOS.filter((r) => !UNREADABLE.includes(r));
+      [['td-comprehensive', 'Tech debt (comprehensive)'], ['modernization', 'Modernization readiness']].forEach(([t, name]) =>
+        dispatch({ type: 'START_ANALYSIS', analysisType: t, name, source: ORG, repos, infra: 'AWS managed', autoGroup: t.startsWith('td') }));
+    }
     const h = () => setRoute(routeNow());
     window.addEventListener('hashchange', h);
     return () => window.removeEventListener('hashchange', h);
@@ -284,9 +310,16 @@ export function Tour() {
 
   if (!step) {
     return (
-      <button type="button" className="tour-launch" onClick={() => startTour(state) && setIdx(0)}>
-        <PlayGlyph /> Story mode
-      </button>
+      <div className="tour-launchers">
+        <button type="button" className="tour-launch" onClick={() => startTour(state) && setIdx(0)}>
+          <PlayGlyph /> Story mode
+        </button>
+        {(route === '/console/health' || route.startsWith('/app/ple/')) && (
+          <button type="button" className="tour-launch secondary" onClick={skipToFindings}>
+            Skip to findings
+          </button>
+        )}
+      </div>
     );
   }
 

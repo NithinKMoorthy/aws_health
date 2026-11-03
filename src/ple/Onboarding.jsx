@@ -767,6 +767,9 @@ const DEFAULT_DRAFT = {
   startDate: null,
   day: 'Mondays',
   time: '06:00 PT',
+  // AWS Health checks keep their own day and time; the first search runs when the source connects.
+  healthDay: 'Mondays',
+  healthTime: '06:00 PT',
   infra: 'managed',
   role: 'create',
   roleName: null,
@@ -823,6 +826,9 @@ const ANALYSIS_DESC = {
   agentic: 'Checks builds, tests and docs, so AWS Transform can make and verify more changes on its own.',
 };
 const CADENCE_WORD = { once: 'once', daily: 'daily', weekly: 'weekly', monthly: 'monthly' };
+// "Mondays at 06:00 PT", worded for the cadence.
+const whenRuns = (cadence, day, time) =>
+  cadence === 'daily' ? `daily at ${time}` : cadence === 'monthly' ? `monthly, first ${day.replace(/s$/, '')} at ${time}` : cadence === 'once' ? 'once' : `${day} at ${time}`;
 // What each estate analysis gets the customer, for the one-line summaries.
 const OUTCOME = {
   security: 'vulnerabilities to patch',
@@ -908,7 +914,7 @@ function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
   const { draft, set, has, add, remove, update, n, u, health, estate, firstDate, later, named, roleMissing, stackMissing, dateMissing } = plan;
   const [open, setOpen] = useState({});
   const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }));
-  const isOpen = (k) => open[k] || (k === 'estate' && tried && dateMissing) || (k === 'where' && tried && (roleMissing || stackMissing));
+  const isOpen = (k) => open[k] || ((k === 'estate' || k === 'repos') && tried && dateMissing) || (k === 'where' && tried && (roleMissing || stackMissing));
   const these = `these ${n} ${u}`;
   const estateAddable = ADDABLE.filter((t) => t !== 'ple' && !has(t));
 
@@ -962,6 +968,14 @@ function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
       <Select compact width={120} value={draft.time} onChange={(v) => set({ time: v })} options={TIMES} />
     </div>
   );
+  const healthRuns = (
+    <div className="runs-start plain">
+      <strong>Checks run</strong>
+      <Select compact width={140} value={draft.healthDay} onChange={(v) => set({ healthDay: v })} options={DAYS} />
+      <span className="muted">at</span>
+      <Select compact width={120} value={draft.healthTime} onChange={(v) => set({ healthTime: v })} options={TIMES} />
+    </div>
+  );
   const addRow = (types) => (
     <div className="add-analysis">
       <span className="muted">Add</span>
@@ -975,10 +989,10 @@ function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
   // One page (stepper): step 2, with AWS Health and the estate as two rows that open to edit.
   if (layout === 'stepper') {
     const healthLine = health
-      ? `Get ${these} upgraded before their deadlines, and catch each new notice as it arrives. Checks ${CADENCE_WORD[health.cadence]}.`
+      ? `Get ${these} upgraded before their deadlines, and catch each new notice as it arrives. Checks ${whenRuns(health.cadence, draft.healthDay, draft.healthTime)}.`
       : `Off. You’ll find the code behind ${these} yourself, and new notices won’t be caught.`;
     const estateLine = estate.length
-      ? `Know the ${list(estate.map((a) => `${a.type === 'custom' ? named(a) : OUTCOME[a.type] ?? named(a)} (${CADENCE_WORD[a.cadence]})`))} in every repository, before they turn urgent.`
+      ? `Flags ${list(estate.map((a) => `${a.type === 'custom' ? named(a) : OUTCOME[a.type] ?? named(a)} ${CADENCE_WORD[a.cadence]}`))}, so the next end-of-support notice is a routine change, not a project.${startLine}`
       : 'Nothing yet. Add an analysis to keep your repositories current.';
     return (
       <div className={`sp-item ${available ? 'current' : 'locked'}`}>
@@ -986,7 +1000,7 @@ function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
         <section className="setup-card group-card" data-tour="analyses">
           <div className="group-head">
             <h2>Keep them continuously modern</h2>
-            <p className="muted">{available ? 'Two things AWS Transform watches for you, on one schedule. The defaults work for most teams.' : 'Available once your repositories are connected.'}</p>
+            <p className="muted">{available ? 'Two things AWS Transform watches for you, on schedule. The defaults work for most teams.' : 'Available once your repositories are connected.'}</p>
           </div>
           {available && (
             <>
@@ -1000,7 +1014,12 @@ function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
                 </div>
                 {isOpen('health') && (
                   <div className="sub-edit">
-                    {health ? row(health) : (
+                    {health ? (
+                      <>
+                        {row(health)}
+                        {healthRuns}
+                      </>
+                    ) : (
                       <div className="add-analysis bare">
                         <button type="button" className="add-link" onClick={() => add('ple')}>+ Add Health analysis</button>
                       </div>
@@ -1011,7 +1030,7 @@ function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
               <div className="group-row">
                 <div className="group-row-head">
                   <div>
-                    <strong>Keep every repository current</strong>
+                    <strong>Stay modernized across every repository</strong>
                     <p className="muted">{estateLine}</p>
                   </div>
                   <Link onClick={() => toggle('repos')}><strong>{isOpen('repos') ? 'Done' : 'Change'}</strong></Link>
@@ -1025,18 +1044,9 @@ function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
                       ))}
                       <button type="button" className="add-link" onClick={() => add('custom')}>+ Add custom</button>
                     </div>
+                    {estate.length > 0 && runsStart}
                   </div>
                 )}
-              </div>
-              <div className="group-row">
-                <div className="group-row-head">
-                  <div>
-                    <strong>When you get results</strong>
-                    <p className="muted">{later ? `First findings after ${fmtDate(firstDate)}, then fresh ones each ${draft.day.replace(/s$/, '')}` : `Fresh findings each ${draft.day.replace(/s$/, '')}`}, from runs that start at {draft.time}. Covers AWS Health and every repository.</p>
-                  </div>
-                  <Link onClick={() => toggle('estate')}><strong>{isOpen('estate') ? 'Done' : 'Change'}</strong></Link>
-                </div>
-                {isOpen('estate') && <div className="sub-edit">{runsStart}</div>}
               </div>
             </>
           )}
@@ -1163,7 +1173,7 @@ function startAnalyses({ plan, state, dispatch, notify, repos, sourceName }) {
   const { draft, analyses, later, named } = plan;
   const picked = analyses.map((a) => ({ ...a, name: named(a) }));
   const start = later ? draft.startDate : null;
-  dispatch({ type: 'PLE_SET_SCHEDULE', schedule: { analyses: picked, start, day: draft.day, time: draft.time, infra: draft.infra, role: draft.infra === 'managed' && draft.role === 'existing' ? draft.roleName : null } });
+  dispatch({ type: 'PLE_SET_SCHEDULE', schedule: { analyses: picked, start, day: draft.day, time: draft.time, healthDay: draft.healthDay, healthTime: draft.healthTime, infra: draft.infra, role: draft.infra === 'managed' && draft.role === 'existing' ? draft.roleName : null } });
   const readable = repos.filter((r) => !UNREADABLE.includes(r));
   const infra = draft.infra === 'managed' ? 'AWS managed' : 'Customer owned';
   picked

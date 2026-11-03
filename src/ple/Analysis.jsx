@@ -3,7 +3,6 @@ import { fmtDate, typeLabel } from '../data';
 import { navigate, useStore } from '../store';
 import { Breadcrumbs, Button, Icon, Link } from '../components/ui';
 import { AnalysisDetail } from '../cm/Analyses';
-import { ORG } from './data';
 import { byDeadline, nextRunIso, unitFor } from './common';
 
 // After setup: the analyses that now run continuously, their first run, and the
@@ -18,7 +17,6 @@ export function PleAnalysisPage() {
   const ids = state.ple.entryEventIds?.length ? state.ple.entryEventIds : [state.ple.entryEventId].filter(Boolean);
   const events = byDeadline(state.ple.events.filter((e) => ids.includes(e.id)));
   const schedule = state.ple.schedule;
-  const src = state.sources.find((s) => s.id === 'src-ple');
   const repoCount = state.ple.setup.repos.length;
 
   // Without a schedule from setup (e.g. an existing customer), show the plain analysis detail.
@@ -77,7 +75,7 @@ export function PleAnalysisPage() {
           <h1>Analyses</h1>
           <p>What AWS Transform checks across your {repoCount} repositories, and how often. Results land in Findings.</p>
         </div>
-        <Button onClick={() => navigate('/app/ple/schedule')}>Edit analyses</Button>
+        <Button onClick={openFindings}>{!searching && restDone ? 'View findings' : 'View partial findings'}</Button>
       </div>
 
       <section className="setup-card landing-card">
@@ -105,7 +103,7 @@ export function PleAnalysisPage() {
                   )}
                 </td>
                 <td>{CADENCE[r.cadence]}</td>
-                <td>{shortDate(schedule.start ?? nextRunIso(r.cadence, schedule.day))}</td>
+                <td>{shortDate(r.type === 'ple' ? nextRunIso(r.cadence, schedule.healthDay ?? schedule.day) : schedule.start ?? nextRunIso(r.cadence, schedule.day))}</td>
                 <td className="col-num">{r.findings == null ? '—' : <Link className="underline" onClick={r.onFindings}><strong>{r.findings} {r.findings === 1 ? 'finding' : 'findings'}</strong></Link>}</td>
               </tr>
             ))}
@@ -113,18 +111,6 @@ export function PleAnalysisPage() {
         </table>
       </section>
 
-      <section className="setup-card landing-card">
-        <div className="landing-card-head">
-          <h2>Settings</h2>
-          <Link onClick={() => navigate('/app/ple/schedule')}><strong>Edit</strong></Link>
-        </div>
-        <dl className="landing-settings">
-          <div><dt>Repositories</dt><dd>{repoCount} in {src?.org ?? ORG} on {state.ple.setup.provider ?? 'GitHub'}</dd></div>
-          <div><dt>Schedule</dt><dd>Runs start {schedule.day} at {schedule.time}</dd></div>
-          <div><dt>Where it runs</dt><dd>{schedule.infra === 'account' ? 'Customer owned' : 'AWS managed'}{schedule.role ? ` · ${schedule.role}` : ''}</dd></div>
-          <div><dt>AWS Health</dt><dd>Watching for new notices</dd></div>
-        </dl>
-      </section>
     </div>
   );
 }

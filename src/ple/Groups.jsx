@@ -125,7 +125,7 @@ export function GroupDetail({ id, query }) {
           {v.safety.tone === 'warn' && <p className="warn-line small" style={{ marginTop: 10 }}><Icon.warn /> {v.safety.detail}</p>}
         </Container>
       )}
-      {!v.campaigns.length && <DependencyWarning repos={v.repos} onSetOrder={() => navigate(planPath(g), { review: '1' })} setOrderLabel="Set the order in the plan" />}
+      {!v.campaigns.length && <DependencyWarning repos={v.repos} />}
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
       {tab === 'findings' && (

@@ -352,7 +352,7 @@ export function nextRunIso(cadence, day, from = MOCK_TODAY) {
  * Cross-repo dependency warning for any group or plan item that spans several repositories:
  * CM can't tell which order their changes must merge in.
  */
-export function DependencyWarning({ repos, where = 'group', onRemove, onSetOrder, setOrderLabel = 'Set order' }) {
+export function DependencyWarning({ repos, where = 'group', onRemove }) {
   if (repos.length < 2) return null;
   return (
     <div className="dep-warning">
@@ -362,9 +362,8 @@ export function DependencyWarning({ repos, where = 'group', onRemove, onSetOrder
           Some repos in this {where} may depend on each other: <strong>{repos.join(', ')}</strong>. CM can’t order their changes yet, so merging their PRs out of order could
           break the build. Remove the linked repos from this {where}, or merge their PRs in the right order yourself.
         </p>
-        {(onRemove || onSetOrder) && (
+        {onRemove && (
           <div className="inline-gap">
-            {onSetOrder && <Link onClick={onSetOrder}><strong>{setOrderLabel}</strong></Link>}
             {onRemove && repos.map((r) => <Link key={r} onClick={() => onRemove(r)}><strong>Remove {r}</strong></Link>)}
           </div>
         )}

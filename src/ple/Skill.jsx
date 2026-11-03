@@ -238,7 +238,6 @@ export function SkillReview({ id, query = {} }) {
   const decisions = s.decisions ?? {};
   const name = s.name ?? spec?.name ?? '';
   const saveAs = s.saveAs === 'one-off' || s.saveAs === 'draft' || s.saveAs === 'published' ? s.saveAs : 'published';
-  const availableTo = s.availableTo ?? 'account';
   const update = (patch) => dispatch({ type: 'PLE_SKILL_UPDATE', groupId: g.id, patch });
 
   const startCampaign = () => {
@@ -368,19 +367,25 @@ export function SkillReview({ id, query = {} }) {
                   <div className="skill-rows">
                     {ROWS.map(([k, label]) => (
                       <div key={k} className="skill-row">
-                        <button type="button" className="skill-row-head" onClick={() => toggleRow(k)} aria-expanded={open.has(k)}>
-                          <span className={`sr-chev ${open.has(k) ? 'open' : ''}`} aria-hidden="true">›</span>
-                          <span className="skill-row-label">{label}</span>
-                          <span className="skill-row-value">{edits[k] ?? spec[k]}</span>
-                          <span className={`tag ${edited(k) ? 'tag-blue' : ''}`}>{edited(k) ? 'Edited' : 'Default'}</span>
-                        </button>
-                        {(open.has(k) || editing) && (
+                        {editing ? (
+                          // Editing: the value becomes the field, in place, so it isn't shown twice.
+                          <div className="skill-row-head editing">
+                            <span className="sr-chev" aria-hidden="true">›</span>
+                            <label className="skill-row-label" htmlFor={`edit-${k}`}>{label}</label>
+                            <textarea id={`edit-${k}`} className="input textarea" rows={1} value={edits[k] ?? spec[k]} onChange={(x) => update({ edits: { ...edits, [k]: x.target.value } })} />
+                            <span className={`tag ${edited(k) ? 'tag-blue' : ''}`}>{edited(k) ? 'Edited' : 'Default'}</span>
+                          </div>
+                        ) : (
+                          <button type="button" className="skill-row-head" onClick={() => toggleRow(k)} aria-expanded={open.has(k)}>
+                            <span className={`sr-chev ${open.has(k) ? 'open' : ''}`} aria-hidden="true">›</span>
+                            <span className="skill-row-label">{label}</span>
+                            <span className="skill-row-value">{edits[k] ?? spec[k]}</span>
+                            <span className={`tag ${edited(k) ? 'tag-blue' : ''}`}>{edited(k) ? 'Edited' : 'Default'}</span>
+                          </button>
+                        )}
+                        {open.has(k) && !editing && (
                           <div className="skill-row-body">
-                            {editing ? (
-                              <textarea className="input textarea" rows={2} value={edits[k] ?? spec[k]} onChange={(x) => update({ edits: { ...edits, [k]: x.target.value } })} />
-                            ) : (
-                              <ul className="plain-list">{spec.details[k].map((d) => <li key={d}>{d}</li>)}</ul>
-                            )}
+                            <ul className="plain-list">{spec.details[k].map((d) => <li key={d}>{d}</li>)}</ul>
                           </div>
                         )}
                       </div>
@@ -414,6 +419,10 @@ export function SkillReview({ id, query = {} }) {
               ) : (
                 <div className="td-switch">
                   <p>Use an existing transformation definition instead of the generated skill.</p>
+                  <div className="td-search">
+                    <Icon.search />
+                    <input className="input" value={tdQuery} onChange={(x) => setTdQuery(x.target.value)} placeholder="Search all transformation definitions, e.g. logging, Java, IAM" aria-label="Search transformation definitions" />
+                  </div>
                   <h4 className="td-list-head">Recommended for these findings</h4>
                   <div className="td-list">
                     {tdCandidates(g, v).map(([id, desc, covers], i) => (
@@ -435,11 +444,6 @@ export function SkillReview({ id, query = {} }) {
                         </span>
                       </label>
                     ))}
-                  </div>
-                  <h4 className="td-list-head">Search all transformation definitions</h4>
-                  <div className="td-search">
-                    <Icon.search />
-                    <input className="input" value={tdQuery} onChange={(x) => setTdQuery(x.target.value)} placeholder="Find by name or what it changes, e.g. logging, Java, IAM" />
                   </div>
                   <Link onClick={() => navigate('/app/cm/settings')}><strong>Browse all capabilities</strong></Link>
                 </div>
@@ -475,9 +479,6 @@ export function SkillReview({ id, query = {} }) {
                 <div className="skill-name-row">
                   <FormField label="Skill name">
                     <Input value={name} onChange={(x) => update({ name: x.target.value })} />
-                  </FormField>
-                  <FormField label="Available to">
-                    <Select value={availableTo} onChange={(x) => update({ availableTo: x })} options={[{ value: 'account', label: 'This account' }, { value: 'org', label: 'My organization' }]} />
                   </FormField>
                 </div>
               )}

@@ -14,6 +14,8 @@ const DEPLOY_MS = 2000;
 const HEALTH_MS = 3500;
 
 export const CM_CUSTOMER_KEY = 'atx-mock-cm-customer';
+// Demo shortcut: start as a new customer who just finished setup from AWS Health.
+export const SKIP_ONBOARDING_KEY = 'atx-skip-onboarding';
 
 export const RESOLVED_HEALTH = 'Resolved (AWS Health)';
 
@@ -63,6 +65,13 @@ export function initialPleState(base) {
   } catch {
     stored = null;
   }
+  let skip = null;
+  try {
+    skip = window.sessionStorage.getItem(SKIP_ONBOARDING_KEY);
+  } catch {
+    skip = null;
+  }
+  if (skip) return postOnboardingState(base, ple);
   if (stored !== '1') return { ...base, ple };
   // Existing CM customer: already connected, analyzed, and Health access granted.
   const repos = ORG_REPOS.filter((r) => !UNREADABLE.includes(r));
@@ -74,6 +83,39 @@ export function initialPleState(base) {
     sources: [...base.sources, pleSource(repos, 'GitHub')],
     analyses: [healthAnalysisRow(Date.now(), repos, findings.length), ...base.analyses],
     ple: { ...ple, onboarded: true, webAppEnabled: true, setup: { provider: 'GitHub', repos, scope: 'org', skipped: false }, groups: [...ple.groups, ...groups] },
+  };
+}
+
+// Just finished setup from AWS Health: every fixable notice picked, repositories connected,
+// Health analysis done and continuous analysis scheduled with the setup defaults.
+function postOnboardingState(base, ple) {
+  const repos = ORG_REPOS;
+  const readable = repos.filter((r) => !UNREADABLE.includes(r));
+  const { findings, groups, seq } = analyze(base, ple, readable);
+  const ids = ple.events.filter((e) => e.codeChange && e.repos.length).map((e) => e.id);
+  const analyses = [
+    { type: 'ple', cadence: 'weekly', name: 'Health analysis' },
+    { type: 'td-comprehensive', cadence: 'weekly', name: 'Tech debt (comprehensive)' },
+    { type: 'modernization', cadence: 'monthly', name: 'Modernization readiness' },
+  ];
+  return {
+    ...base,
+    seq,
+    findings: [...findings, ...base.findings],
+    sources: [...base.sources, pleSource(repos, 'GitHub')],
+    analyses: [healthAnalysisRow(Date.now(), repos, findings.length), ...base.analyses],
+    ple: {
+      ...ple,
+      onboarded: true,
+      webAppEnabled: true,
+      entryEventId: ids[0] ?? null,
+      entryEventIds: ids,
+      setup: { provider: 'GitHub', repos, scope: 'org', skipped: false, push: true },
+      analysis: { status: 'done', startedAt: Date.now(), duration: 0, repos, unreadable: repos.filter((r) => UNREADABLE.includes(r)), done: repos.length },
+      schedule: { analyses, start: null, day: 'Mondays', time: '06:00 PT', healthDay: 'Mondays', healthTime: '06:00 PT', infra: 'managed', role: null },
+      eventBridge: true,
+      groups: [...ple.groups, ...groups],
+    },
   };
 }
 

@@ -220,10 +220,7 @@ function GeneralPlan({ groupId, query }) {
   const [reviewing, setReviewing] = useState(() => (query.review ? '__first' : null));
   const [reviewTab, setReviewTab] = useState(null);
   const openReview = (key, tab) => { setReviewing(key); setReviewTab(tab); };
-  const [orders, setOrders] = useState({});
   const [leftOut, setLeftOut] = useState([]);
-  const [confirmed, setConfirmed] = useState({});
-  const [ordering, setOrdering] = useState(null);
   const items = buildItems(state, findings, overrides, autoApprove);
   const single = items.length === 1 && items[0].e ? items[0] : null;
   const names = single ? CAMPAIGN_NAMES[single.g.pleId] : null;
@@ -247,27 +244,13 @@ function GeneralPlan({ groupId, query }) {
   const scoped = items.filter((it) => !leftOut.includes(it.key)).map((it) => ({ ...it, repos: it.repos.filter(inScope), findings: it.findings.filter((f) => inScope(f.repo)) })).filter((it) => it.findings.length);
   const allFindings = scoped.flatMap((it) => it.findings);
   const repos = [...new Set(allFindings.map((f) => f.repo))];
-  // Items spanning several repos need a merge order the customer confirms.
-  const withOrder = (it) => {
-    const set = orders[it.key] ?? [];
-    return set.filter((r) => it.repos.includes(r)).concat(it.repos.filter((r) => !set.includes(r)));
-  };
   // Repos whose changes may depend on each other: the ones the analysis links, else the first few.
   const linked = (it) => {
     const dep = it.repos.filter((r) => { const fx = it.g && repoFixture(it.g.pleId, r); return fx?.first || fx?.after; });
     return (dep.length >= 2 ? dep : it.repos).slice(0, 3);
   };
-  const unordered = scoped.filter((it) => it.repos.length > 1 && !confirmed[it.key]);
+  const unordered = scoped.filter((it) => it.repos.length > 1);
   const linkedRepos = [...new Set(unordered.flatMap(linked))];
-  const move = (it, r, d) => {
-    const list = withOrder(it);
-    const i = list.indexOf(r);
-    const j = i + d;
-    if (j < 0 || j >= list.length) return;
-    [list[i], list[j]] = [list[j], list[i]];
-    setOrders({ ...orders, [it.key]: list });
-  };
-  const setOrderFor = (it) => { setOrdering(it.key); setExpanded((x) => new Set([...x, it.key])); };
   const ready = scoped.filter((it) => it.status === 'ready').length;
   const allReady = ready === scoped.length;
   const nextReview = scoped.find((it) => it.status === 'review');
@@ -323,7 +306,6 @@ function GeneralPlan({ groupId, query }) {
           where="plan"
           repos={linkedRepos}
           onRemove={(r) => setExcluded([...excluded, r])}
-          onSetOrder={() => setOrderFor(unordered[0])}
         />
       )}
       {leftOut.length > 0 && (
@@ -382,19 +364,11 @@ function GeneralPlan({ groupId, query }) {
                       <tr className="fix-detail">
                         <td />
                         <td colSpan={3}>
-                          {ordering === it.key && <p className="small muted order-hint">Put the repo others depend on first. Pull requests open and merge in this order.</p>}
-                          <ul className={`plain-list ${ordering === it.key ? 'ordering' : ''}`}>
-                            {withOrder(it).map((r, ri, arr) => {
+                          <ul className="plain-list">
+                            {it.repos.map((r) => {
                               const fx = it.g && repoFixture(it.g.pleId, r);
                               return (
                                 <li key={r}>
-                                  {ordering === it.key && (
-                                    <span className="order-ctl">
-                                      <span className="order-pos">{ri + 1}</span>
-                                      <button type="button" className="icon-btn" disabled={ri === 0} aria-label={`Move ${r} up`} onClick={() => move(it, r, -1)}>↑</button>
-                                      <button type="button" className="icon-btn" disabled={ri === arr.length - 1} aria-label={`Move ${r} down`} onClick={() => move(it, r, 1)}>↓</button>
-                                    </span>
-                                  )}
                                   <strong>{r}</strong> · {plural(it.findings.filter((f) => f.repo === r).length, 'finding')}
                                   {fx?.first && it.repos.length > 1 && <span className="muted small"> · runs first (others depend on it)</span>}
                                   {fx?.after && it.repos.includes(fx.after) && <span className="muted small"> · runs after {fx.after}</span>}
@@ -403,15 +377,6 @@ function GeneralPlan({ groupId, query }) {
                               );
                             })}
                           </ul>
-                          {ordering === it.key && (
-                            <div className="inline-gap order-actions">
-                              <Button variant="primary" onClick={() => { setConfirmed({ ...confirmed, [it.key]: true }); setOrdering(null); notify(`Merge order set for ${it.title}.`); }}>Confirm order</Button>
-                              <Button variant="link" onClick={() => setOrdering(null)}>Cancel</Button>
-                            </div>
-                          )}
-                          {it.repos.length > 1 && confirmed[it.key] && ordering !== it.key && (
-                            <p className="small muted">Merge order set by you · <Link onClick={() => setOrdering(it.key)}>Change order</Link></p>
-                          )}
                         </td>
                       </tr>
                     )}
@@ -511,25 +476,17 @@ const TD_VERSIONS = { 'AWS/nodejs-version-upgrade': 'v3.2', 'AWS/nodejs-aws-sdk-
 const tdOf = (fixer) => (fixer.kind === 'managed' ? `AWS/${fixer.name}` : fixer.kind === 'custom' ? fixer.name : null);
 const tdLabel = (td) => td.replace(/^(AWS|Custom)\//, '');
 const isManagedTd = (td) => td.startsWith('AWS/');
+const TD_DESC = {
+  'AWS/nodejs-version-upgrade': 'Upgrades the runtime and its engines field',
+  'AWS/nodejs-aws-sdk-v2-to-v3': 'Moves AWS SDK for JavaScript v2 calls to v3',
+  'AWS/java-version-upgrade': 'Upgrades the JDK, build plugins and deprecated APIs',
+  'AWS/python-version-upgrade': 'Upgrades the interpreter and pinned dependencies',
+  'AWS/eks-version-upgrade': 'Moves EKS clusters to a supported Kubernetes version in infrastructure-as-code',
+  'AWS/rds-engine-upgrade': 'Moves RDS and Aurora engines to a supported version in infrastructure-as-code',
+  'AWS/git-history-secret-purge': 'Removes committed secrets from repository history after rotation',
+};
+const tdDesc = (t) => [isManagedTd(t) ? 'AWS-managed TD' : 'Custom TD in your registry', TD_DESC[t]].filter(Boolean).join(' · ');
 
-// What a TD does for this item, in the same four rows as a skill.
-function tdSpec(it, td) {
-  const e = it.e;
-  if (e) {
-    return {
-      Target: `${it.g?.target ?? e.target} on every affected ${unit(e, 1)}`,
-      Approach: e.service === 'Lambda' ? 'Bump the runtime in infrastructure-as-code, update engines and dependencies, replace APIs the new runtime removes' : `Change the version setting in infrastructure-as-code, carry over settings the new ${e.service} version needs`,
-      Validation: 'Build and tests pass on the new version · the analysis no longer reports the old one',
-      Guardrails: 'Infrastructure-as-code and dependency files only · one pull request per repository',
-    };
-  }
-  return {
-    Target: `${tdLabel(td)} applied in ${plural2(it.repos.length, 'repo')}`,
-    Approach: 'Apply the TD’s recipe one commit per change',
-    Validation: 'Build and tests pass; the original rule re-runs clean',
-    Guardrails: 'Files the TD declares · nothing else',
-  };
-}
 
 const Chevron = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>;
 
@@ -556,10 +513,10 @@ function ReviewPanel({ it, tab, onTab, onClose, onUseTd, onUseSkill, onApproveTd
   const curTd = tdOf(it.fixer);
   const tdOptions = [...new Set([recTd, curTd, ...TRANSFORMATIONS].filter(Boolean))];
   const [td, setTd] = useState(curTd ?? tdOptions[0]);
-  const full = td === recTd;
-  const covered = full ? findingTotal : Math.max(1, findingTotal - 1);
-  const left = full ? [] : it.findings.slice(covered);
-  const optionName = (t) => [`${tdLabel(t)}${TD_VERSIONS[t] ? ` ${TD_VERSIONS[t]}` : ''}`, t === recTd && 'Recommended', t === curTd && 'Current'].filter(Boolean).join(' · ');
+  const [tdQuery, setTdQuery] = useState('');
+  const q = tdQuery.trim().toLowerCase();
+  const shownTds = q ? tdOptions.filter((t) => `${t} ${TD_DESC[t] ?? ''}`.toLowerCase().includes(q)) : tdOptions.slice(0, 3);
+  const coversOf = (t) => (t === recTd ? findingTotal : Math.max(1, findingTotal - 1));
 
   const contextLine = () => (
     <div className="tf-line"><span className="tf-label">Context</span>
@@ -656,25 +613,30 @@ function ReviewPanel({ it, tab, onTab, onClose, onUseTd, onUseSkill, onApproveTd
         </>
       ) : (
         <>
-          <div className="tf-td-pick">
-            <span className={`tf-td-kind ${isManagedTd(td) ? 'managed' : ''}`} title={isManagedTd(td) ? 'Managed TD' : 'Custom TD'}>{isManagedTd(td) ? 'M' : 'C'}</span>
-            <select value={td} onChange={(e) => setTd(e.target.value)} aria-label="Transformation definition">
-              {tdOptions.map((t) => <option key={t} value={t}>{optionName(t)}</option>)}
-            </select>
-            <span className={`tf-td-cover ${full ? 'full' : ''}`}>Covers {covered} of {plural2(findingTotal, 'finding')} · {full ? '4 of 4' : '3 of 4'} validations</span>
+          <div className="td-switch tf-td-choose">
+            <p>{g ? 'Use an existing transformation definition instead of the generated skill.' : 'Pick the transformation definition that fixes these findings.'}</p>
+            <div className="td-search">
+              <Icon.search />
+              <input className="input" value={tdQuery} onChange={(e) => setTdQuery(e.target.value)} placeholder="Search all transformation definitions, e.g. logging, Java, IAM" aria-label="Search transformation definitions" />
+            </div>
+            <h4 className="td-list-head">{q ? `Results (${shownTds.length})` : 'Recommended for these findings'}</h4>
+            <div className="td-list" role="radiogroup" aria-label="Transformation definition">
+              {shownTds.map((t) => (
+                <label key={t} className={`td-option ${td === t ? 'on' : ''}`}>
+                  <input type="radio" name={`td-${it.key}`} checked={td === t} onChange={() => setTd(t)} />
+                  <span className="grow">
+                    <span className="mono">{t}{TD_VERSIONS[t] ? ` ${TD_VERSIONS[t]}` : ''}</span>
+                    {t === recTd && <span className="sk-tag">Recommended</span>}
+                    {t === curTd && <span className="sk-tag">Current</span>}
+                    <span className="muted small td-option-desc">{tdDesc(t)}</span>
+                  </span>
+                  <span className={`small td-cover ${t === recTd ? 'ok' : 'muted'}`}>Covers {coversOf(t)} of {plural2(findingTotal, 'finding')}</span>
+                </label>
+              ))}
+              {q && !shownTds.length && <p className="muted small">No transformation definitions match “{tdQuery.trim()}”.</p>}
+            </div>
+            <Link onClick={() => navigate('/app/cm/settings')}><strong>Browse all capabilities</strong></Link>
           </div>
-          {left.length
-            ? <p className="tf-tradeoff"><strong>Trade-off:</strong> {tdLabel(td)} wasn’t built for {it.title}. <span className="tf-stays">Stays open: {left.map((f) => f.title).join(', ')}.</span></p>
-            : <p className="tf-tradeoff"><strong>Why this TD:</strong> {it.e ? `Moves every affected ${unit(it.e, 1)} from ${it.e.from} to ${it.g?.target ?? it.e.target}, the version AWS Health recommends.` : `Covers all ${plural2(findingTotal, 'finding')} in ${it.repos.length === 1 ? it.repos[0] : `${it.repos.length} repos`}.`}</p>}
-          <ul className="tf-spec">
-            {Object.entries(tdSpec(it, td)).map(([label, value]) => (
-              <li key={label}>
-                <div className="tf-spec-row static"><Chevron /><span className="tf-spec-name">{label}</span><span className="tf-spec-value">{value}</span><span className="tf-badge">{isManagedTd(td) ? 'Managed' : 'Custom'}</span></div>
-              </li>
-            ))}
-          </ul>
-          <div className="tf-line"><span className="tf-label">Decisions</span><span className="tf-value">{[it.e ? `Target ${it.g?.target ?? it.e.target}` : 'TD defaults', 'One pull request per repository'].join(' · ')}</span><span className="tf-note">Set by this TD</span></div>
-          {contextLine()}
           <footer>
             {td === curTd
               ? <Button variant="primary" onClick={() => { onApproveTd(); onClose(); }}>Keep this TD</Button>
