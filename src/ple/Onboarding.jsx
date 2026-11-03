@@ -823,6 +823,14 @@ const ANALYSIS_DESC = {
   agentic: 'Checks builds, tests and docs, so AWS Transform can make and verify more changes on its own.',
 };
 const CADENCE_WORD = { once: 'once', daily: 'daily', weekly: 'weekly', monthly: 'monthly' };
+// What each estate analysis gets the customer, for the one-line summaries.
+const OUTCOME = {
+  security: 'vulnerabilities to patch',
+  'td-comprehensive': 'tech debt to pay down',
+  'td-quick': 'tech debt to pay down',
+  modernization: 'upgrades you can take next',
+  agentic: 'gaps that keep changes manual',
+};
 
 
 const whereSummary = (draft) =>
@@ -967,8 +975,11 @@ function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
   // One page (stepper): step 2, with AWS Health and the estate as two rows that open to edit.
   if (layout === 'stepper') {
     const healthLine = health
-      ? `Finds the code behind ${these} now, then each new notice. Runs ${CADENCE_WORD[health.cadence]}.`
-      : `Off. The code behind ${these} won’t be found, and new notices won’t be watched.`;
+      ? `Get ${these} upgraded before their deadlines, and catch each new notice as it arrives. Checks ${CADENCE_WORD[health.cadence]}.`
+      : `Off. You’ll find the code behind ${these} yourself, and new notices won’t be caught.`;
+    const estateLine = estate.length
+      ? `Know the ${list(estate.map((a) => `${a.type === 'custom' ? named(a) : OUTCOME[a.type] ?? named(a)} (${CADENCE_WORD[a.cadence]})`))} in every repository, before they turn urgent.`
+      : 'Nothing yet. Add an analysis to keep your repositories current.';
     return (
       <div className={`sp-item ${available ? 'current' : 'locked'}`}>
         <span className="sp-num">2</span>
@@ -982,7 +993,7 @@ function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
               <div className="group-row" data-tour="health-analysis">
                 <div className="group-row-head">
                   <div>
-                    <strong>AWS Health</strong>
+                    <strong>Resolve AWS Health notices</strong>
                     <p className="muted">{healthLine}</p>
                   </div>
                   <Link onClick={() => toggle('health')}><strong>{isOpen('health') ? 'Done' : 'Change'}</strong></Link>
@@ -1000,8 +1011,8 @@ function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
               <div className="group-row">
                 <div className="group-row-head">
                   <div>
-                    <strong>Your estate</strong>
-                    <p className="muted">{estate.length ? runsLine.replace('every connected repository', 'every repository') : 'Nothing yet. Add an analysis to keep your repositories current.'}</p>
+                    <strong>Keep every repository current</strong>
+                    <p className="muted">{estateLine}</p>
                   </div>
                   <Link onClick={() => toggle('repos')}><strong>{isOpen('repos') ? 'Done' : 'Change'}</strong></Link>
                 </div>
@@ -1020,8 +1031,8 @@ function AnalysesSections({ plan, tried, layout = 'cards', available = true }) {
               <div className="group-row">
                 <div className="group-row-head">
                   <div>
-                    <strong>Schedule</strong>
-                    <p className="muted">{later ? `First run ${fmtDate(firstDate)}, then ${draft.day} at ${draft.time}` : `Runs start ${draft.day} at ${draft.time}`}. Applies to AWS Health and your estate.</p>
+                    <strong>When you get results</strong>
+                    <p className="muted">{later ? `First findings after ${fmtDate(firstDate)}, then fresh ones each ${draft.day.replace(/s$/, '')}` : `Fresh findings each ${draft.day.replace(/s$/, '')}`}, from runs that start at {draft.time}. Covers AWS Health and every repository.</p>
                   </div>
                   <Link onClick={() => toggle('estate')}><strong>{isOpen('estate') ? 'Done' : 'Change'}</strong></Link>
                 </div>
